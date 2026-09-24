@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'screens/chat_screen.dart';
+import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
+import 'services/provider_connection_service.dart';
+import 'services/settings_service.dart';
 import 'services/speech_service.dart';
 
 class CozySidekickApp extends StatelessWidget {
@@ -9,9 +12,15 @@ class CozySidekickApp extends StatelessWidget {
     super.key,
     required this.chatService,
     required this.speechService,
+    required this.settingsStore,
+    required this.keyStore,
+    required this.connectionTester,
   });
   final ChatService chatService;
   final SpeechService speechService;
+  final AppSettingsStore settingsStore;
+  final ApiKeyStore keyStore;
+  final ConnectionTester connectionTester;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -23,6 +32,12 @@ class CozySidekickApp extends StatelessWidget {
       scaffoldBackgroundColor: const Color(0xFFF8F7FC),
       appBarTheme: const AppBarTheme(centerTitle: true),
     ),
-    home: ChatScreen(chatService: chatService, speechService: speechService),
+    home: ChatScreen(
+      chatService: chatService,
+      speechService: speechService,
+      settingsStore: settingsStore,
+      keyStore: keyStore,
+      connectionTester: connectionTester,
+    ),
   );
 }

@@ -1,15 +1,41 @@
 import 'package:flutter/material.dart';
 
+import 'ai/ai_provider.dart';
+import 'ai/custom_server_provider.dart';
+import 'ai/openai_provider.dart';
+import 'ai/openrouter_provider.dart';
+import 'ai/xai_provider.dart';
 import 'app.dart';
+import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
+import 'services/provider_connection_service.dart';
+import 'services/settings_service.dart';
 import 'services/speech_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  final settingsStore = SettingsService();
+  final keyStore = SecureApiKeyStore();
+  final providers = <AiProviderType, AiProvider>{
+    AiProviderType.openRouter: OpenRouterProvider(keyStore: keyStore),
+    AiProviderType.openAi: OpenAiProvider(keyStore: keyStore),
+    AiProviderType.xai: XaiProvider(keyStore: keyStore),
+    AiProviderType.customServer: CustomServerProvider(
+      keyStore: keyStore,
+      settingsStore: settingsStore,
+    ),
+  };
+  final connectionTester = ProviderConnectionService(providers: providers);
   runApp(
     CozySidekickApp(
-      chatService: ChatService(),
+      chatService: ChatService(
+        settingsStore: settingsStore,
+        providers: providers,
+      ),
       speechService: DeviceSpeechService(),
+      settingsStore: settingsStore,
+      keyStore: keyStore,
+      connectionTester: connectionTester,
     ),
   );
 }

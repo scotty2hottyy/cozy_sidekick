@@ -2,8 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
+import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
+import '../services/provider_connection_service.dart';
+import '../services/settings_service.dart';
 import '../services/speech_service.dart';
 import '../widgets/chat_header.dart';
 import '../widgets/message_bubble.dart';
@@ -15,9 +19,15 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.chatService,
     required this.speechService,
+    required this.settingsStore,
+    required this.keyStore,
+    required this.connectionTester,
   });
   final ChatService chatService;
   final SpeechService speechService;
+  final AppSettingsStore settingsStore;
+  final ApiKeyStore keyStore;
+  final ConnectionTester connectionTester;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -41,6 +51,11 @@ class _ChatScreenState extends State<ChatScreen> {
         List<ChatMessage>.of(_messages),
       );
       if (mounted) setState(() => _messages.add(reply));
+    } on AiProviderException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.userMessage)));
+      }
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -102,7 +117,11 @@ class _ChatScreenState extends State<ChatScreen> {
               child: ChatHeader(
                 onSettingsTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const SettingsScreen(),
+                    builder: (_) => SettingsScreen(
+                      settingsStore: widget.settingsStore,
+                      keyStore: widget.keyStore,
+                      connectionTester: widget.connectionTester,
+                    ),
                   ),
                 ),
               ),
