@@ -84,6 +84,24 @@ Implemented:
 
 Tests cover JSON round trips, roles, timestamps, invalid input, and equality.
 
+### Issues #4, #5, and #6 - Personality configuration, persistence, and chat integration
+Files: `lib/models/personality.dart`, `lib/screens/personality_screen.dart`, `lib/services/personality_service.dart`
+
+Implemented:
+- `Personality` model with an ID, name, system prompt, and default flag.
+- Personality screen reachable from Settings, with controls to add, edit, choose a default, and remove non-default personalities.
+- `PersonalityService` stores the serialized personality list and active personality ID in `shared_preferences`, loads saved state at app startup, and seeds the built-in personalities on a fresh install.
+- `ChatService` loads the active personality for each reply and passes its system prompt to the selected provider.
+- Unit and widget coverage checks personality persistence, active-personality chat prompts, and personality editing from Settings.
+
+Validation: `flutter test` passes (37 tests), and `flutter analyze` reports no issues. Personality persistence across a full app restart and a real-provider chat round trip still need manual confirmation.
+
+### Combined personality and chat-history integration
+- `ChatService` persists the full conversation while sending only the newest 20 messages to the selected provider with the active personality's system prompt.
+- History restore, clear-chat, busy-state protection, storage error handling, and personality editing remain available together.
+- Settings routes to both the functional Personality and Chat History screens.
+- Validation after merging the features: `flutter analyze` passes and `flutter test` passes (54 tests).
+
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
 
@@ -99,11 +117,12 @@ Validation:
 - `flutter test` passes (14 tests).
 - Physical iPhone and Android checks are still needed for permission prompts, speech recognition, keyboard/rotation behavior, and the home-indicator/navigation-bar background.
 
-## Next
-1. Complete the provider/settings manual test checklist above.
-2. Manually validate issue #2 on physical iPhone and Android devices.
-3. Continue with personality and chat-history work without moving provider behavior into chat widgets.
-
 ### Chat-history settings navigation
 - Moved Clear chat from the chat header menu to Settings → Chat History, retaining the delete confirmation and persistence behavior.
 - Settings is disabled during history loading, sending, or clearing to preserve the existing operation guard. Updated the widget test to cover the settings path, cancel, deletion, and returning to chat.
+
+## Next
+1. Complete the provider/settings manual test checklist above.
+2. Manually validate personality persistence across a full app restart and confirm chat requests use the selected prompt.
+3. Manually verify chat history survives a physical-device close/reopen cycle and clear-chat persists.
+4. Manually validate issue #2 on physical iPhone and Android devices.

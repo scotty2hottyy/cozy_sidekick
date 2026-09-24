@@ -3,6 +3,7 @@ import '../fake_chat_history_store.dart';
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
+import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,6 +14,7 @@ void main() {
     final service = ChatService(
       historyStore: history,
       settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
       providers: {},
     );
     expect(await service.loadHistory(), history.messages);
@@ -34,6 +36,7 @@ void main() {
       final service = ChatService(
         historyStore: history,
         settingsStore: InMemorySettingsStore(),
+        personalityStore: InMemoryPersonalityStore(),
         providers: {AiProviderType.openRouter: provider},
       );
       final messages = List.generate(25, (i) => ChatMessage.user('$i'));
@@ -49,6 +52,7 @@ void main() {
     final service = ChatService(
       historyStore: history,
       settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
       providers: {
         AiProviderType.openRouter: _FakeProvider(
           '',
@@ -66,11 +70,13 @@ void main() {
   });
   test('uses the currently selected provider for every reply', () async {
     final settings = InMemorySettingsStore();
+    final personalities = InMemoryPersonalityStore();
     final openRouter = _FakeProvider('router reply');
     final custom = _FakeProvider('custom reply');
     final service = ChatService(
       historyStore: FakeChatHistoryStore(),
       settingsStore: settings,
+      personalityStore: personalities,
       providers: <AiProviderType, AiProvider>{
         AiProviderType.openRouter: openRouter,
         AiProviderType.customServer: custom,
@@ -86,12 +92,21 @@ void main() {
       'custom reply',
     );
     expect(custom.lastMessages.single.text, 'Hi');
+
+    await personalities.setActivePersonality('curious-guide');
+    await service.getReply(<ChatMessage>[ChatMessage.user('Who are you?')]);
+    expect(
+      custom.lastSystemPrompt,
+      'You are a curious guide. Help explore ideas with clear explanations '
+      'and useful questions.',
+    );
   });
 
   test('rejects an empty conversation', () {
     final service = ChatService(
       historyStore: FakeChatHistoryStore(),
       settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{},
     );
     expect(() => service.getReply(<ChatMessage>[]), throwsArgumentError);
@@ -103,6 +118,7 @@ class _FakeProvider implements AiProvider {
   final void Function()? beforeReply;
   final String reply;
   List<ChatMessage> lastMessages = <ChatMessage>[];
+  String? lastSystemPrompt;
 
   @override
   Future<String> sendChat({
@@ -111,6 +127,7 @@ class _FakeProvider implements AiProvider {
   }) async {
     beforeReply?.call();
     lastMessages = messages;
+    lastSystemPrompt = systemPrompt;
     return reply;
   }
 }

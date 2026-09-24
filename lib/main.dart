@@ -10,12 +10,15 @@ import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
 import 'services/chat_history_store.dart';
 import 'services/provider_connection_service.dart';
+import 'services/personality_service.dart';
 import 'services/settings_service.dart';
 import 'services/speech_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final settingsStore = SettingsService();
+  final personalityStore = PersonalityService();
+  await personalityStore.initialize();
   final keyStore = SecureApiKeyStore();
   final providers = <AiProviderType, AiProvider>{
     AiProviderType.openRouter: OpenRouterProvider(keyStore: keyStore),
@@ -32,10 +35,12 @@ void main() {
       chatService: ChatService(
         historyStore: FileChatHistoryStore(),
         settingsStore: settingsStore,
+        personalityStore: personalityStore,
         providers: providers,
       ),
       speechService: DeviceSpeechService(),
       settingsStore: settingsStore,
+      personalityStore: personalityStore,
       keyStore: keyStore,
       connectionTester: connectionTester,
     ),

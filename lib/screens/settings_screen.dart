@@ -2,21 +2,25 @@ import 'package:flutter/material.dart';
 
 import '../services/api_key_store.dart';
 import '../services/provider_connection_service.dart';
+import '../services/personality_service.dart';
 import '../services/settings_service.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
 import 'chat_history_screen.dart';
+import 'personality_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
     required this.settingsStore,
+    required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
     required this.onClearChat,
   });
   final Future<void> Function() onClearChat;
   final AppSettingsStore settingsStore;
+  final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
 
@@ -55,6 +59,9 @@ class SettingsScreen extends StatelessWidget {
               Icons.auto_awesome_rounded,
               'Personality',
               'Customize voice, tone, and instructions',
+              destination: PersonalityScreen(
+                personalityStore: personalityStore,
+              ),
             ),
             _row(
               context,

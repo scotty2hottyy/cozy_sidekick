@@ -1,22 +1,21 @@
 import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
 import 'chat_history_store.dart';
+import 'personality_service.dart';
 import 'settings_service.dart';
 
 class ChatService {
   ChatService({
     required this.settingsStore,
+    required this.personalityStore,
     required this.historyStore,
     required Map<AiProviderType, AiProvider> providers,
-    this.systemPrompt =
-        'You are Cozy Sidekick, a helpful conversational assistant.',
   }) : _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
 
   final ChatHistoryStore historyStore;
   final AppSettingsStore settingsStore;
-
+  final PersonalityStore personalityStore;
   final Map<AiProviderType, AiProvider> _providers;
-  final String systemPrompt;
 
   Future<List<ChatMessage>> loadHistory() => historyStore.load();
   Future<void> clearHistory() => historyStore.clear();
@@ -34,8 +33,9 @@ class ChatService {
         'No implementation registered for ${selected.name}',
       );
     }
+    final personality = await personalityStore.loadActivePersonality();
     final reply = await provider.sendChat(
-      systemPrompt: systemPrompt,
+      systemPrompt: personality.systemPrompt,
       messages: snapshot.length > 20
           ? snapshot.sublist(snapshot.length - 20)
           : snapshot,
