@@ -47,10 +47,6 @@ jobs:
       - name: ✅ Run tests
         run: flutter test --coverage
 
-
-      - name: 🏗️ Build APKs
-        run: flutter build apk --release 
-
       - name: 📦 Prepare artifacts
         run: |
           mkdir -p artifacts
