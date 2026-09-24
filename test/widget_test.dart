@@ -1,13 +1,16 @@
+import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/app.dart';
+import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
+import 'package:cozy_sidekick/services/provider_connection_service.dart';
+import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:cozy_sidekick/services/speech_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('sends a message and shows the placeholder reply', (
-    tester,
-  ) async {
+  testWidgets('sends a message and shows the provider reply', (tester) async {
     await tester.pumpWidget(_app());
     expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('messageInput')), 'Hello');
@@ -18,8 +21,8 @@ void main() {
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('Sidekick is typing…'), findsOneWidget);
     expect(_button(tester, 'sendButton').onPressed, isNull);
-    await tester.pump(const Duration(seconds: 2));
-    expect(find.text('You said: Hello'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Provider: Hello'), findsOneWidget);
     expect(find.text('Sidekick is typing…'), findsNothing);
   });
 
@@ -28,7 +31,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settingsButton')));
     await tester.pumpAndSettle();
     expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('AI & Provider Settings'), findsOneWidget);
+    expect(find.text('AI Settings'), findsOneWidget);
     expect(find.text('API Credentials'), findsOneWidget);
     expect(find.text('Personality'), findsOneWidget);
   });
@@ -61,10 +64,31 @@ void main() {
   });
 }
 
-CozySidekickApp _app({SpeechService? speechService}) => CozySidekickApp(
-  chatService: ChatService(replyDelay: const Duration(seconds: 1)),
-  speechService: speechService ?? FakeSpeechService(),
-);
+CozySidekickApp _app({SpeechService? speechService}) {
+  final settings = InMemorySettingsStore();
+  final keys = InMemoryApiKeyStore();
+  final providers = <AiProviderType, AiProvider>{
+    AiProviderType.openRouter: _FakeProvider(),
+  };
+  return CozySidekickApp(
+    chatService: ChatService(settingsStore: settings, providers: providers),
+    speechService: speechService ?? FakeSpeechService(),
+    settingsStore: settings,
+    keyStore: keys,
+    connectionTester: ProviderConnectionService(providers: providers),
+  );
+}
+
+class _FakeProvider implements AiProvider {
+  @override
+  Future<String> sendChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    return 'Provider: ${messages.last.text}';
+  }
+}
 
 IconButton _button(WidgetTester tester, String key) =>
     tester.widget<IconButton>(find.byKey(Key(key)));

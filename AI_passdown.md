@@ -15,7 +15,7 @@ Planned AI providers:
 - OpenRouter
 - OpenAI
 - xAI / Grok
-- Self-hosted LLM through `teddy_chat.sonniersolution.com`
+- User-configurable custom HTTP(S) chat server
 
 The personality/system instructions live in the app rather than on the server.
 
@@ -27,6 +27,37 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issues #7, #8, #11, #12, #13, and #14 - Providers and settings
+
+Implemented:
+- A shared `AiProvider` interface, provider types, typed provider errors, and a reusable JSON HTTP helper.
+- A reusable OpenAI-compatible provider plus registered OpenRouter, OpenAI, and xAI/Grok implementations. OpenRouter defaults to `openrouter/free`.
+- A custom server provider that reads a user-configured HTTP(S) base URL and posts ordered system/user/assistant messages to `{baseUrl}/chat`.
+- `ChatService` resolves the selected provider for every message, so `ChatScreen` remains provider-neutral and provider changes take effect without restarting.
+- `flutter_secure_storage` credential persistence with a distinct slot per provider, trimming, empty-value rejection, replacement/deletion, and an in-memory test implementation. Stored secrets are never displayed or logged.
+- `shared_preferences` persistence for the selected text-chat provider and custom server base URL. A fresh install defaults to OpenRouter; the custom server URL is validated but is not hard-coded.
+- Functional AI Settings and API Credentials screens linked from Settings. Credentials can be saved, replaced, or deleted, and custom server configuration has separate URL and secure token fields.
+- Test Connection actions for every provider, with visible success and clean credential, rate-limit, network, configuration, availability, and malformed-response failures.
+- Provider failures are surfaced in chat with safe user-facing messages that do not include credentials or request headers.
+
+Automated coverage:
+- HTTP success/error translation and network failures.
+- Secure credential save/read/replace/delete, per-provider separation, trimming, and empty-value rejection.
+- Provider selection and custom URL persistence.
+- OpenRouter and custom server URLs, headers, ordered bodies, parsing, missing credentials, authentication failures, and malformed responses using mock HTTP clients only.
+- Selected-provider chat routing, connection-test results, settings navigation, provider selection, URL/credential saving, and visible connection success.
+
+Validation:
+- `flutter analyze` passes with no issues.
+- `flutter test` passes (33 tests).
+
+Remaining manual testing:
+- Save settings, fully restart the app, and confirm provider, URL, and credentials persist.
+- Test OpenRouter with a real user-entered key.
+- Configure `https://chatserver.sonniersolution.com` with a privately supplied token; test connection and a real chat round trip.
+- Confirm bad-token behavior on the live custom server.
+- Validate the complete flow on physical iPhone and Android devices.
+
 ### Issue #3 - Create message data model
 File: `lib/models/chat_message.dart`
 
@@ -59,6 +90,6 @@ Validation:
 - Physical iPhone and Android checks are still needed for permission prompts, speech recognition, keyboard/rotation behavior, and the home-indicator/navigation-bar background.
 
 ## Next
-1. Manually validate issue #2 on physical iPhone and Android devices.
-2. Keep settings rows as placeholders until their dedicated issues are implemented.
-3. Continue with provider, persistence, and personality issues without moving that behavior into the chat widgets.
+1. Complete the provider/settings manual test checklist above.
+2. Manually validate issue #2 on physical iPhone and Android devices.
+3. Continue with personality and chat-history work without moving provider behavior into chat widgets.

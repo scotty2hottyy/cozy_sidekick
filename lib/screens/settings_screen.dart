@@ -1,7 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_key_store.dart';
+import '../services/provider_connection_service.dart';
+import '../services/settings_service.dart';
+import 'ai_settings_screen.dart';
+import 'api_credentials_screen.dart';
+
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    required this.settingsStore,
+    required this.keyStore,
+    required this.connectionTester,
+  });
+  final AppSettingsStore settingsStore;
+  final ApiKeyStore keyStore;
+  final ConnectionTester connectionTester;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -16,14 +30,20 @@ class SettingsScreen extends StatelessWidget {
             _row(
               context,
               Icons.route_rounded,
-              'AI & Provider Settings',
-              'Choose a provider and model',
+              'AI Settings',
+              'Choose a text-chat provider',
+              destination: AiSettingsScreen(settingsStore: settingsStore),
             ),
             _row(
               context,
               Icons.key_rounded,
               'API Credentials',
               'Manage provider keys securely',
+              destination: ApiCredentialsScreen(
+                settingsStore: settingsStore,
+                keyStore: keyStore,
+                connectionTester: connectionTester,
+              ),
             ),
             const SizedBox(height: 24),
             _section(context, 'Sidekick'),
@@ -69,8 +89,9 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     IconData icon,
     String title,
-    String subtitle,
-  ) => ListTile(
+    String subtitle, {
+    Widget? destination,
+  }) => ListTile(
     contentPadding: EdgeInsets.zero,
     leading: Icon(icon),
     title: Text(title),
@@ -78,7 +99,7 @@ class SettingsScreen extends StatelessWidget {
     trailing: const Icon(Icons.chevron_right_rounded),
     onTap: () => Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _SettingsPlaceholderScreen(title: title),
+        builder: (_) => destination ?? _SettingsPlaceholderScreen(title: title),
       ),
     ),
   );
