@@ -4,6 +4,7 @@ import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
+import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:cozy_sidekick/services/speech_service.dart';
 import 'package:flutter/material.dart';
@@ -62,18 +63,59 @@ void main() {
     await tester.pump();
     expect(find.textContaining('permissions are needed'), findsOneWidget);
   });
+
+  testWidgets('personality screen loads and saves a custom default', (
+    tester,
+  ) async {
+    final personalities = InMemoryPersonalityStore();
+    await tester.pumpWidget(_app(personalityStore: personalities));
+    await tester.tap(find.byKey(const Key('settingsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Personality'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cozy Sidekick'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('addPersonalityButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personalityNameField')),
+      'Focused Helper',
+    );
+    await tester.enterText(
+      find.byKey(const Key('personalityPromptField')),
+      'Give concise, practical answers.',
+    );
+    await tester.tap(find.text('Use as default'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Focused Helper'), findsOneWidget);
+    expect(
+      (await personalities.loadActivePersonality()).name,
+      'Focused Helper',
+    );
+  });
 }
 
-CozySidekickApp _app({SpeechService? speechService}) {
+CozySidekickApp _app({
+  SpeechService? speechService,
+  PersonalityStore? personalityStore,
+}) {
   final settings = InMemorySettingsStore();
+  final personalities = personalityStore ?? InMemoryPersonalityStore();
   final keys = InMemoryApiKeyStore();
   final providers = <AiProviderType, AiProvider>{
     AiProviderType.openRouter: _FakeProvider(),
   };
   return CozySidekickApp(
-    chatService: ChatService(settingsStore: settings, providers: providers),
+    chatService: ChatService(
+      settingsStore: settings,
+      personalityStore: personalities,
+      providers: providers,
+    ),
     speechService: speechService ?? FakeSpeechService(),
     settingsStore: settings,
+    personalityStore: personalities,
     keyStore: keys,
     connectionTester: ProviderConnectionService(providers: providers),
   );

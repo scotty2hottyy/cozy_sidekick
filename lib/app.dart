@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/chat_screen.dart';
 import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
+import 'services/personality_service.dart';
 import 'services/provider_connection_service.dart';
 import 'services/settings_service.dart';
 import 'services/speech_service.dart';
@@ -13,12 +14,14 @@ class CozySidekickApp extends StatelessWidget {
     required this.chatService,
     required this.speechService,
     required this.settingsStore,
+    required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
   });
   final ChatService chatService;
   final SpeechService speechService;
   final AppSettingsStore settingsStore;
+  final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
 
@@ -36,6 +39,7 @@ class CozySidekickApp extends StatelessWidget {
       chatService: chatService,
       speechService: speechService,
       settingsStore: settingsStore,
+      personalityStore: personalityStore,
       keyStore: keyStore,
       connectionTester: connectionTester,
     ),

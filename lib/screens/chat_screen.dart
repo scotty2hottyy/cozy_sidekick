@@ -6,6 +6,7 @@ import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
+import '../services/personality_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import '../services/speech_service.dart';
@@ -20,12 +21,14 @@ class ChatScreen extends StatefulWidget {
     required this.chatService,
     required this.speechService,
     required this.settingsStore,
+    required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
   });
   final ChatService chatService;
   final SpeechService speechService;
   final AppSettingsStore settingsStore;
+  final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
 
@@ -119,6 +122,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   MaterialPageRoute<void>(
                     builder: (_) => SettingsScreen(
                       settingsStore: widget.settingsStore,
+                      personalityStore: widget.personalityStore,
                       keyStore: widget.keyStore,
                       connectionTester: widget.connectionTester,
                     ),

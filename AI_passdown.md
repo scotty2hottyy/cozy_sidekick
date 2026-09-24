@@ -74,15 +74,17 @@ Implemented:
 
 Tests cover JSON round trips, roles, timestamps, invalid input, and equality.
 
-### Issue #4 - Personality configuration screen (Step 1: UI shell)
-Files: `lib/models/personality.dart`, `lib/screens/personality_screen.dart`
+### Issues #4, #5, and #6 - Personality configuration, persistence, and chat integration
+Files: `lib/models/personality.dart`, `lib/screens/personality_screen.dart`, `lib/services/personality_service.dart`
 
 Implemented:
 - `Personality` model with an ID, name, system prompt, and default flag.
-- Personality screen reachable from Settings, with starter examples and controls to add, edit, choose a default, and remove non-default personalities.
-- Personality changes are in memory only. Persistent storage and wiring the selected personality into chat are still pending.
+- Personality screen reachable from Settings, with controls to add, edit, choose a default, and remove non-default personalities.
+- `PersonalityService` stores the serialized personality list and active personality ID in `shared_preferences`, loads saved state at app startup, and seeds the built-in personalities on a fresh install.
+- `ChatService` loads the active personality for each reply and passes its system prompt to the selected provider.
+- Unit and widget coverage checks personality persistence, active-personality chat prompts, and personality editing from Settings.
 
-Validation: `flutter test` passes (33 tests). The current suite does not include dedicated personality-screen tests.
+Validation: `flutter test` passes (37 tests), and `flutter analyze` reports no issues. Personality persistence across a full app restart and a real-provider chat round trip still need manual confirmation.
 
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
@@ -101,6 +103,6 @@ Validation:
 
 ## Next
 1. Complete the provider/settings manual test checklist above.
-2. Complete Issue #4's follow-up step: persist personality configuration and apply the selected system prompt to chat requests.
+2. Manually validate personality persistence across a full app restart and confirm chat requests use the selected prompt.
 3. Manually validate issue #2 on physical iPhone and Android devices.
 4. Continue with chat-history work without moving provider behavior into chat widgets.

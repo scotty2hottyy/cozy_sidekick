@@ -1,18 +1,18 @@
 import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
+import 'personality_service.dart';
 import 'settings_service.dart';
 
 class ChatService {
   ChatService({
     required this.settingsStore,
+    required this.personalityStore,
     required Map<AiProviderType, AiProvider> providers,
-    this.systemPrompt =
-        'You are Cozy Sidekick, a helpful conversational assistant.',
   }) : _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
 
   final AppSettingsStore settingsStore;
+  final PersonalityStore personalityStore;
   final Map<AiProviderType, AiProvider> _providers;
-  final String systemPrompt;
 
   Future<ChatMessage> getReply(List<ChatMessage> conversation) async {
     if (conversation.isEmpty) {
@@ -25,8 +25,9 @@ class ChatService {
         'No implementation registered for ${selected.name}',
       );
     }
+    final personality = await personalityStore.loadActivePersonality();
     final reply = await provider.sendChat(
-      systemPrompt: systemPrompt,
+      systemPrompt: personality.systemPrompt,
       messages: conversation,
     );
     return ChatMessage.assistant(reply);

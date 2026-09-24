@@ -1,36 +1,36 @@
 import 'package:flutter/material.dart';
 
 import '../models/personality.dart';
+import '../services/personality_service.dart';
 
-/// UI shell for creating, editing, and choosing AI personalities.
-///
-/// Changes are held in memory for this screen. Persistent storage is a later
-/// step in the personality feature.
+/// Lets users create, edit, and choose the active AI personality.
 class PersonalityScreen extends StatefulWidget {
-  const PersonalityScreen({super.key});
+  const PersonalityScreen({super.key, required this.personalityStore});
+
+  final PersonalityStore personalityStore;
 
   @override
   State<PersonalityScreen> createState() => _PersonalityScreenState();
 }
 
 class _PersonalityScreenState extends State<PersonalityScreen> {
-  final List<Personality> _personalities = <Personality>[
-    Personality(
-      id: 'cozy-sidekick',
-      name: 'Cozy Sidekick',
-      systemPrompt:
-          'You are a helpful, warm conversational assistant. Be thoughtful, '
-          'clear, and supportive.',
-      isDefault: true,
-    ),
-    Personality(
-      id: 'curious-guide',
-      name: 'Curious Guide',
-      systemPrompt:
-          'You are a curious guide. Help explore ideas with clear explanations '
-          'and useful questions.',
-    ),
-  ];
+  List<Personality> _personalities = <Personality>[];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPersonalities();
+  }
+
+  Future<void> _loadPersonalities() async {
+    final personalities = await widget.personalityStore.loadPersonalities();
+    if (!mounted) return;
+    setState(() {
+      _personalities = personalities;
+      _isLoading = false;
+    });
+  }
 
   Future<void> _editPersonality([Personality? personality]) async {
     final result = await showDialog<_PersonalityDraft>(
@@ -39,89 +39,89 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
     );
     if (result == null || !mounted) return;
 
-    setState(() {
-      if (result.isDefault) {
-        for (var i = 0; i < _personalities.length; i++) {
-          final existing = _personalities[i];
-          _personalities[i] = Personality(
-            id: existing.id,
-            name: existing.name,
-            systemPrompt: existing.systemPrompt,
-          );
-        }
-      }
-
-      final updated = Personality(
-        id: personality?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-        name: result.name,
-        systemPrompt: result.systemPrompt,
-        isDefault: result.isDefault,
-      );
-      if (personality == null) {
-        _personalities.add(updated);
-      } else {
-        final index = _personalities.indexWhere(
-          (item) => item.id == personality.id,
-        );
-        if (index >= 0) _personalities[index] = updated;
-      }
-    });
+    final updated = Personality(
+      id: personality?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      name: result.name,
+      systemPrompt: result.systemPrompt,
+      isDefault: result.isDefault,
+    );
+    final next = <Personality>[
+      for (final existing in _personalities)
+        if (existing.id != personality?.id)
+          if (result.isDefault && existing.isDefault)
+            Personality(
+              id: existing.id,
+              name: existing.name,
+              systemPrompt: existing.systemPrompt,
+            )
+          else
+            existing,
+      updated,
+    ];
+    await _savePersonalities(next);
   }
 
-  void _deletePersonality(Personality personality) {
-    setState(() {
-      _personalities.removeWhere((item) => item.id == personality.id);
-      if (_personalities.isNotEmpty &&
-          !_personalities.any((item) => item.isDefault)) {
-        final first = _personalities.first;
-        _personalities[0] = Personality(
-          id: first.id,
-          name: first.name,
-          systemPrompt: first.systemPrompt,
-          isDefault: true,
+  Future<void> _deletePersonality(Personality personality) async {
+    final next = _personalities
+        .where((item) => item.id != personality.id)
+        .toList();
+    await _savePersonalities(next);
+  }
+
+  Future<void> _savePersonalities(List<Personality> personalities) async {
+    try {
+      await widget.personalityStore.savePersonalities(personalities);
+      final saved = await widget.personalityStore.loadPersonalities();
+      if (mounted) setState(() => _personalities = saved);
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save personalities.')),
         );
       }
-    });
+    }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Personalities')),
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720),
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: <Widget>[
-            Text(
-              'Choose how your sidekick responds',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Each personality has its own system instructions.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            for (final personality in _personalities)
-              _PersonalityCard(
-                personality: personality,
-                onEdit: () => _editPersonality(personality),
-                onDelete: personality.isDefault
-                    ? null
-                    : () => _deletePersonality(personality),
+    body: _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: <Widget>[
+                  Text(
+                    'Choose how your sidekick responds',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Each personality has its own system instructions.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  for (final personality in _personalities)
+                    _PersonalityCard(
+                      personality: personality,
+                      onEdit: () => _editPersonality(personality),
+                      onDelete: personality.isDefault
+                          ? null
+                          : () => _deletePersonality(personality),
+                    ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('addPersonalityButton'),
+                    onPressed: () => _editPersonality(),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add personality'),
+                  ),
+                ],
               ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              key: const Key('addPersonalityButton'),
-              onPressed: () => _editPersonality(),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add personality'),
             ),
-          ],
-        ),
-      ),
-    ),
+          ),
   );
 }
 
@@ -268,7 +268,9 @@ class _PersonalityDialogState extends State<_PersonalityDialog> {
               value: _isDefault,
               title: const Text('Use as default'),
               controlAffinity: ListTileControlAffinity.leading,
-              onChanged: (value) => setState(() => _isDefault = value ?? false),
+              onChanged: widget.personality?.isDefault == true
+                  ? null
+                  : (value) => setState(() => _isDefault = value ?? false),
             ),
           ],
         ),
