@@ -74,6 +74,14 @@ Implemented:
 
 Tests cover JSON round trips, roles, timestamps, invalid input, and equality.
 
+### Issue #4 - Personality configuration screen (Step 1: UI shell)
+Files: `lib/models/personality.dart`, `lib/screens/personality_screen.dart`
+
+Implemented:
+- `Personality` model with an ID, name, system prompt, and default flag.
+- Personality screen reachable from Settings, with starter examples and controls to add, edit, choose a default, and remove non-default personalities.
+- Personality changes are in memory only. Persistent storage and wiring the selected personality into chat are still pending.
+
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
 
@@ -91,5 +99,6 @@ Validation:
 
 ## Next
 1. Complete the provider/settings manual test checklist above.
-2. Manually validate issue #2 on physical iPhone and Android devices.
-3. Continue with personality and chat-history work without moving provider behavior into chat widgets.
+2. Complete Issue #4's follow-up step: persist personality configuration and apply the selected system prompt to chat requests.
+3. Manually validate issue #2 on physical iPhone and Android devices.
+4. Continue with chat-history work without moving provider behavior into chat widgets.

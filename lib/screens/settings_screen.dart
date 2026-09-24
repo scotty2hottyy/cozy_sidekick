@@ -5,6 +5,7 @@ import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
+import 'personality_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
@@ -52,6 +53,7 @@ class SettingsScreen extends StatelessWidget {
               Icons.auto_awesome_rounded,
               'Personality',
               'Customize voice, tone, and instructions',
+              destination: const PersonalityScreen(),
             ),
             _row(
               context,
