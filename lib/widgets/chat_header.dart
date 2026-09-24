@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 class ChatHeader extends StatelessWidget {
-  const ChatHeader({super.key, required this.onSettingsTap});
+  const ChatHeader({super.key, required this.onSettingsTap, this.onClearChat});
+  final VoidCallback? onClearChat;
   final VoidCallback onSettingsTap;
 
   @override
@@ -10,6 +11,17 @@ class ChatHeader extends StatelessWidget {
     child: Stack(
       alignment: Alignment.center,
       children: <Widget>[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: PopupMenuButton<String>(
+            key: const Key('chatMenu'),
+            enabled: onClearChat != null,
+            onSelected: (_) => onClearChat?.call(),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'clear', child: Text('Clear chat')),
+            ],
+          ),
+        ),
         Align(
           alignment: Alignment.centerRight,
           child: IconButton.filledTonal(

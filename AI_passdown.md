@@ -27,6 +27,16 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #16 - Single local chat history
+
+- Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization.
+- Stores the newest 500 messages; missing or invalid history loads as empty.
+- `ChatService` saves before provider requests and after successful replies. Only the newest 20 conversation messages are sent to providers; the system prompt is unchanged.
+- `ChatScreen` restores history with an initial spinner and offers a confirmed Clear chat menu action. Sending/clearing is disabled while loading or busy to avoid conflicting updates.
+- Added file-store, service, and widget coverage using temporary directories and fake stores. Physical-device close/reopen verification remains pending.
+- Validation: `flutter analyze` passes; `flutter test` passes (50 tests).
+
+
 ### Issues #7, #8, #11, #12, #13, and #14 - Providers and settings
 
 Implemented:

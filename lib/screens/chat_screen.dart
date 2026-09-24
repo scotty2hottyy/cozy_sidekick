@@ -37,11 +37,70 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = <ChatMessage>[];
   final TextEditingController _composerController = TextEditingController();
   bool _isSending = false;
+  bool _isLoading = true;
+  bool _isClearing = false;
+  bool get _busy => _isLoading || _isSending || _isClearing;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadHistory());
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final messages = await widget.chatService.loadHistory();
+      if (mounted) setState(() => _messages.addAll(messages));
+    } on Exception {
+      _showStorageError('Could not load saved chat.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showStorageError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _clearChat() async {
+    if (_busy) return;
+    setState(() => _isClearing = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Clear chat'),
+          content: const Text("Delete all messages? This can't be undone."),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await widget.chatService.clearHistory();
+      if (mounted) setState(_messages.clear);
+    } on Exception {
+      _showStorageError('Could not clear saved chat. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isClearing = false);
+    }
+  }
+
   SpeechServiceState _speechState = SpeechServiceState.idle;
 
   Future<void> _send(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || _isSending) return;
+    if (trimmed.isEmpty || _busy) return;
     setState(() {
       _messages.add(ChatMessage.user(trimmed));
       _isSending = true;
@@ -56,6 +115,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.userMessage)));
       }
+    } on Exception {
+      _showStorageError('Could not save chat. Please try again.');
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -115,6 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
             SafeArea(
               bottom: false,
               child: ChatHeader(
+                onClearChat: _busy ? null : _clearChat,
                 onSettingsTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => SettingsScreen(
@@ -128,7 +190,9 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             const Divider(height: 1),
             Expanded(
-              child: _messages.isEmpty
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _messages.isEmpty
                   ? const Center(
                       child: Padding(
                         padding: EdgeInsets.all(24),
@@ -169,7 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
               controller: _composerController,
               onSend: _send,
               onMicrophoneTap: _toggleSpeech,
-              enabled: !_isSending,
+              enabled: !_busy,
               isListening: _speechState == SpeechServiceState.listening,
             ),
           ],
