@@ -5,6 +5,7 @@ import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
+import 'chat_history_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
@@ -12,7 +13,9 @@ class SettingsScreen extends StatelessWidget {
     required this.settingsStore,
     required this.keyStore,
     required this.connectionTester,
+    required this.onClearChat,
   });
+  final Future<void> Function() onClearChat;
   final AppSettingsStore settingsStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
@@ -71,7 +74,8 @@ class SettingsScreen extends StatelessWidget {
               context,
               Icons.history_rounded,
               'Chat History',
-              'History controls are coming soon',
+              'Manage saved chat history',
+              destination: ChatHistoryScreen(onClearChat: onClearChat),
             ),
             _row(context, Icons.info_outline_rounded, 'About', 'Cozy Sidekick'),
           ],
