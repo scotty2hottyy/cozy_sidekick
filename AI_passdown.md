@@ -43,29 +43,22 @@ Implemented:
 
 Tests cover JSON round trips, roles, timestamps, invalid input, and equality.
 
-## Current Work
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
 
-UI reference projects:
-- `scotty2hottyy/teddy-chat` for the more polished chat presentation.
-- `scotty2hottyy/chat_beta` for the settings/menu structure.
+Implemented:
+- Polished responsive chat screen with header, empty state, message bubbles, typing indicator, and bottom-edge composer.
+- Local placeholder replies through `ChatService` (`You said: ...`); no provider integration or persistence.
+- Settings button and navigable generic settings shell with placeholders for providers, credentials, personality, voice, appearance, history, and app information.
+- Speech-to-text composer input with partial results, stop-listening support, user-facing unavailable/permission/error states, and platform permissions.
+- Widget tests for chat, settings navigation, partial speech results, stopping speech, and denied permissions, plus unit tests for the placeholder chat service.
 
-Important UI requirement:
-- Do not reproduce the bottom gap seen in the older chat UI. The composer/background should visually continue to the bottom edge while still respecting the iPhone safe area.
-
-Issue #2 remains intentionally simple:
-- text chat only
-- local placeholder assistant reply
-- no real AI provider yet
-- no history persistence yet
-- no personality behavior yet
+Validation:
+- `flutter analyze` passes with no issues.
+- `flutter test` passes (14 tests).
+- Physical iPhone and Android checks are still needed for permission prompts, speech recognition, keyboard/rotation behavior, and the home-indicator/navigation-bar background.
 
 ## Next
-For issue #2:
-1. Replace Flutter counter UI.
-2. Build chat screen, message bubbles, and composer.
-3. Reuse/adapt the polished UI patterns rather than copying provider/history code.
-4. Add/update widget tests.
-5. Run `flutter analyze` and `flutter test`.
-6. Update this file before opening the PR.
+1. Manually validate issue #2 on physical iPhone and Android devices.
+2. Keep settings rows as placeholders until their dedicated issues are implemented.
+3. Continue with provider, persistence, and personality issues without moving that behavior into the chat widgets.
