@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Cozy Sidekick uses the microphone to turn speech into text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Cozy Sidekick uses speech recognition to type spoken messages.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
