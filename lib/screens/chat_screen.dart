@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../ai/ai_provider.dart';
+import '../ai/error_messages.dart';
 import '../models/chat_message.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
@@ -13,6 +14,7 @@ import '../services/speech_service.dart';
 import '../widgets/chat_header.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_composer.dart';
+import 'api_credentials_screen.dart';
 import 'settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -104,25 +106,65 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _busy) return;
-    setState(() {
-      _messages.add(ChatMessage.user(trimmed));
-      _isSending = true;
-    });
+    setState(() => _messages.add(ChatMessage.user(trimmed)));
+    await _requestReply();
+  }
+
+  /// Asks again for a reply to the last message. A failed request leaves the
+  /// user's message in the list, so nothing they typed is lost.
+  Future<void> _retry() async {
+    if (_busy || _messages.isEmpty || !_messages.last.isUser) return;
+    await _requestReply();
+  }
+
+  Future<void> _requestReply() async {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    setState(() => _isSending = true);
     try {
       final reply = await widget.chatService.getReply(
         List<ChatMessage>.of(_messages),
       );
       if (mounted) setState(() => _messages.add(reply));
     } on AiProviderException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.userMessage)));
-      }
-    } on Exception {
-      _showStorageError('Could not save chat. Please try again.');
+      debugPrint('Chat failed: $error'); // never includes keys
+      _showError(friendlyMessage(error), openSettings: needsSettings(error));
+    } catch (error) {
+      debugPrint('Unexpected chat error: $error');
+      _showError('Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
+  }
+
+  void _showError(String message, {bool openSettings = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        // A SnackBar with an action stays up until tapped, covering the
+        // composer. Only keep it up for screen readers, which need the time.
+        persist: MediaQuery.accessibleNavigationOf(context),
+        action: openSettings
+            ? SnackBarAction(label: 'Settings', onPressed: _openCredentials)
+            : SnackBarAction(label: 'Retry', onPressed: _retry),
+      ),
+    );
+  }
+
+  /// Opens the screen where keys and the custom server URL are set. The user
+  /// has likely fixed the problem when they come back, so it asks again.
+  Future<void> _openCredentials() async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ApiCredentialsScreen(
+          settingsStore: widget.settingsStore,
+          keyStore: widget.keyStore,
+          connectionTester: widget.connectionTester,
+        ),
+      ),
+    );
+    if (mounted) await _retry();
   }
 
   Future<void> _toggleSpeech() async {

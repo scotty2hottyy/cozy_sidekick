@@ -210,18 +210,102 @@ void main() {
       'Focused Helper',
     );
   });
+
+  testWidgets('network error explains itself and re-enables sending', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(provider: _FlakyProvider(<Object>[const NetworkException()])),
+    );
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+    expect(
+      find.text("Can't connect. Check your internet connection."),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(SnackBarAction, 'Retry'), findsOneWidget);
+    expect(find.text('Hello'), findsOneWidget);
+    expect(find.text('Sidekick is typing…'), findsNothing);
+    await tester.enterText(find.byKey(const Key('messageInput')), 'Again');
+    await tester.pump();
+    expect(_button(tester, 'sendButton').onPressed, isNotNull);
+
+    // The SnackBar must not stay over the composer.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('retry asks again without repeating the user message', (
+    tester,
+  ) async {
+    final history = FakeChatHistoryStore();
+    final provider = _FlakyProvider(<Object>[const NetworkException()]);
+    await tester.pumpWidget(_app(historyStore: history, provider: provider));
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Retry'));
+    await tester.pumpAndSettle();
+    expect(provider.calls, 2);
+    expect(find.text('Hello'), findsOneWidget);
+    expect(find.text('Provider: Hello'), findsOneWidget);
+    expect(history.messages.map((m) => m.text), ['Hello', 'Provider: Hello']);
+  });
+
+  testWidgets('key errors open credentials, then ask again on return', (
+    tester,
+  ) async {
+    final provider = _FlakyProvider(<Object>[const MissingApiKeyException()]);
+    await tester.pumpWidget(_app(provider: provider));
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+    expect(
+      find.text('Add a key in Settings to start chatting.'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(SnackBarAction, 'Retry'), findsNothing);
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('API Credentials'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(provider.calls, 2);
+    expect(find.text('Provider: Hello'), findsOneWidget);
+  });
+
+  testWidgets('unexpected errors never show the raw error', (tester) async {
+    await tester.pumpWidget(
+      _app(provider: _FlakyProvider(<Object>[StateError('internal detail')])),
+    );
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('internal detail'), findsNothing);
+    expect(find.widgetWithText(SnackBarAction, 'Retry'), findsOneWidget);
+  });
+}
+
+Future<void> _sendMessage(WidgetTester tester, String text) async {
+  await tester.enterText(find.byKey(const Key('messageInput')), text);
+  await tester.pump();
+  await tester.tap(find.byKey(const Key('sendButton')));
+  await tester.pumpAndSettle();
 }
 
 CozySidekickApp _app({
   SpeechService? speechService,
   PersonalityStore? personalityStore,
   ChatHistoryStore? historyStore,
+  AiProvider? provider,
 }) {
   final settings = InMemorySettingsStore();
   final personalities = personalityStore ?? InMemoryPersonalityStore();
   final keys = InMemoryApiKeyStore();
   final providers = <AiProviderType, AiProvider>{
-    AiProviderType.openRouter: _FakeProvider(),
+    AiProviderType.openRouter: provider ?? _FakeProvider(),
   };
   return CozySidekickApp(
     chatService: ChatService(
@@ -245,6 +329,23 @@ class _FakeProvider implements AiProvider {
     required List<ChatMessage> messages,
   }) async {
     await Future<void>.delayed(const Duration(seconds: 1));
+    return 'Provider: ${messages.last.text}';
+  }
+}
+
+/// Throws each of [errors] in turn, then replies like [_FakeProvider].
+class _FlakyProvider implements AiProvider {
+  _FlakyProvider(this.errors);
+  final List<Object> errors;
+  int calls = 0;
+
+  @override
+  Future<String> sendChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async {
+    calls++;
+    if (errors.isNotEmpty) throw errors.removeAt(0);
     return 'Provider: ${messages.last.text}';
   }
 }
