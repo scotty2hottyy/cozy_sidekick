@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class ChatHeader extends StatelessWidget {
   const ChatHeader({super.key, required this.onSettingsTap});
-  final VoidCallback onSettingsTap;
+  final VoidCallback? onSettingsTap;
 
   @override
   Widget build(BuildContext context) => Padding(

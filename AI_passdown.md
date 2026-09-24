@@ -27,6 +27,16 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #16 - Single local chat history
+
+- Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization.
+- Stores the newest 500 messages; missing or invalid history loads as empty.
+- `ChatService` saves before provider requests and after successful replies. Only the newest 20 conversation messages are sent to providers; the system prompt is unchanged.
+- `ChatScreen` restores history with an initial spinner and offers a confirmed Clear chat action under Settings → Chat History. Sending/clearing is disabled while loading or busy to avoid conflicting updates.
+- Added file-store, service, and widget coverage using temporary directories and fake stores. Physical-device close/reopen verification remains pending.
+- Validation: `flutter analyze` passes; `flutter test` passes (50 tests).
+
+
 ### Issues #7, #8, #11, #12, #13, and #14 - Providers and settings
 
 Implemented:
@@ -86,6 +96,12 @@ Implemented:
 
 Validation: `flutter test` passes (37 tests), and `flutter analyze` reports no issues. Personality persistence across a full app restart and a real-provider chat round trip still need manual confirmation.
 
+### Combined personality and chat-history integration
+- `ChatService` persists the full conversation while sending only the newest 20 messages to the selected provider with the active personality's system prompt.
+- History restore, clear-chat, busy-state protection, storage error handling, and personality editing remain available together.
+- Settings routes to both the functional Personality and Chat History screens.
+- Validation after merging the features: `flutter analyze` passes and `flutter test` passes (54 tests).
+
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
 
@@ -101,8 +117,12 @@ Validation:
 - `flutter test` passes (14 tests).
 - Physical iPhone and Android checks are still needed for permission prompts, speech recognition, keyboard/rotation behavior, and the home-indicator/navigation-bar background.
 
+### Chat-history settings navigation
+- Moved Clear chat from the chat header menu to Settings → Chat History, retaining the delete confirmation and persistence behavior.
+- Settings is disabled during history loading, sending, or clearing to preserve the existing operation guard. Updated the widget test to cover the settings path, cancel, deletion, and returning to chat.
+
 ## Next
 1. Complete the provider/settings manual test checklist above.
 2. Manually validate personality persistence across a full app restart and confirm chat requests use the selected prompt.
-3. Manually validate issue #2 on physical iPhone and Android devices.
-4. Continue with chat-history work without moving provider behavior into chat widgets.
+3. Manually verify chat history survives a physical-device close/reopen cycle and clear-chat persists.
+4. Manually validate issue #2 on physical iPhone and Android devices.
