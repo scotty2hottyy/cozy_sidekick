@@ -82,6 +82,8 @@ Implemented:
 - Personality screen reachable from Settings, with starter examples and controls to add, edit, choose a default, and remove non-default personalities.
 - Personality changes are in memory only. Persistent storage and wiring the selected personality into chat are still pending.
 
+Validation: `flutter test` passes (33 tests). The current suite does not include dedicated personality-screen tests.
+
 ### Issue #2 - Create basic chat UI
 Branch: `2-create-basic-chat-ui`
 
