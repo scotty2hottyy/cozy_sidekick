@@ -32,7 +32,7 @@ The personality/system instructions live in the app rather than on the server.
 - Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization.
 - Stores the newest 500 messages; missing or invalid history loads as empty.
 - `ChatService` saves before provider requests and after successful replies. Only the newest 20 conversation messages are sent to providers; the system prompt is unchanged.
-- `ChatScreen` restores history with an initial spinner and offers a confirmed Clear chat menu action. Sending/clearing is disabled while loading or busy to avoid conflicting updates.
+- `ChatScreen` restores history with an initial spinner and offers a confirmed Clear chat action under Settings → Chat History. Sending/clearing is disabled while loading or busy to avoid conflicting updates.
 - Added file-store, service, and widget coverage using temporary directories and fake stores. Physical-device close/reopen verification remains pending.
 - Validation: `flutter analyze` passes; `flutter test` passes (50 tests).
 
@@ -103,3 +103,7 @@ Validation:
 1. Complete the provider/settings manual test checklist above.
 2. Manually validate issue #2 on physical iPhone and Android devices.
 3. Continue with personality and chat-history work without moving provider behavior into chat widgets.
+
+### Chat-history settings navigation
+- Moved Clear chat from the chat header menu to Settings → Chat History, retaining the delete confirmation and persistence behavior.
+- Settings is disabled during history loading, sending, or clearing to preserve the existing operation guard. Updated the widget test to cover the settings path, cancel, deletion, and returning to chat.

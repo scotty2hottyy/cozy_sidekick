@@ -30,12 +30,8 @@ void main() {
     await tester.tap(find.byKey(const Key('sendButton')));
     await tester.pump();
     expect(history.messages.single.text, 'Remember this');
-    expect(
-      tester
-          .widget<PopupMenuButton<String>>(find.byKey(const Key('chatMenu')))
-          .enabled,
-      isFalse,
-    );
+    expect(_button(tester, 'settingsButton').onPressed, isNull);
+    expect(find.byType(PopupMenuButton<String>), findsNothing);
     await tester.pumpAndSettle();
     expect(history.messages.map((m) => m.text), [
       'Remember this',
@@ -75,9 +71,13 @@ void main() {
         ..messages = [ChatMessage.user('Saved message')];
       await tester.pumpWidget(_app(historyStore: history));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settingsButton')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Chat History'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chat History'));
+      await tester.pumpAndSettle();
       Future<void> openClear() async {
-        await tester.tap(find.byKey(const Key('chatMenu')));
-        await tester.pumpAndSettle();
         await tester.tap(find.text('Clear chat'));
         await tester.pumpAndSettle();
       }
@@ -90,13 +90,29 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(history.clearCalls, 0);
+      expect(history.messages.single.text, 'Saved message');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       expect(find.text('Saved message'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('settingsButton')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Chat History'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chat History'));
+      await tester.pumpAndSettle();
       await openClear();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
       expect(history.clearCalls, 1);
       expect(history.messages, isEmpty);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       expect(find.text('Saved message'), findsNothing);
+      expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pumpWidget(_app(historyStore: history));
       await tester.pumpAndSettle();

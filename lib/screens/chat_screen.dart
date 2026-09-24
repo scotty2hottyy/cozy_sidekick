@@ -176,16 +176,18 @@ class _ChatScreenState extends State<ChatScreen> {
             SafeArea(
               bottom: false,
               child: ChatHeader(
-                onClearChat: _busy ? null : _clearChat,
-                onSettingsTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SettingsScreen(
-                      settingsStore: widget.settingsStore,
-                      keyStore: widget.keyStore,
-                      connectionTester: widget.connectionTester,
-                    ),
-                  ),
-                ),
+                onSettingsTap: _busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SettingsScreen(
+                            onClearChat: _clearChat,
+                            settingsStore: widget.settingsStore,
+                            keyStore: widget.keyStore,
+                            connectionTester: widget.connectionTester,
+                          ),
+                        ),
+                      ),
               ),
             ),
             const Divider(height: 1),
