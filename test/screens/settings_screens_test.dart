@@ -24,6 +24,35 @@ void main() {
     expect(settings.selectedProvider, AiProviderType.customServer);
   });
 
+  testWidgets('show reasoning is off by default and is saved', (tester) async {
+    final settings = InMemorySettingsStore();
+    Future<void> open() async {
+      await tester.pumpWidget(
+        MaterialApp(home: AiSettingsScreen(settingsStore: settings)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    SwitchListTile tile() => tester.widget<SwitchListTile>(
+      find.byKey(const Key('showReasoningSwitch')),
+    );
+
+    await open();
+    expect(tile().value, isFalse);
+    expect(
+      find.text('When a model shares its thinking, show it above the reply.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('showReasoningSwitch')));
+    await tester.pumpAndSettle();
+    expect(settings.showReasoning, isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    await open();
+    expect(tile().value, isTrue);
+  });
+
   testWidgets('custom URL and credential can be saved and connection tested', (
     tester,
   ) async {
@@ -112,8 +141,8 @@ void main() {
 
 class _OkProvider implements AiProvider {
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
-  }) async => 'OK';
+  }) async => const AiReply(text: 'OK');
 }

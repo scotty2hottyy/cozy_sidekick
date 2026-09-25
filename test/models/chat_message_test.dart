@@ -51,6 +51,40 @@ void main() {
       expect(loaded, messages);
     });
 
+    test('keeps reasoning through toJson and fromJson', () {
+      final original = ChatMessage.assistant(
+        'No.',
+        reasoning: 'Try dividing by 7.',
+      );
+
+      final json = original.toJson();
+      final restored = ChatMessage.fromJson(json);
+
+      expect(json['reasoning'], 'Try dividing by 7.');
+      expect(restored, original);
+      expect(restored.reasoning, 'Try dividing by 7.');
+    });
+
+    test('only stores reasoning when there is some', () {
+      final original = ChatMessage.assistant('No.');
+
+      final json = original.toJson();
+
+      expect(json.containsKey('reasoning'), isFalse);
+      expect(ChatMessage.fromJson(json), original);
+    });
+
+    test('loads messages saved before reasoning existed', () {
+      final restored = ChatMessage.fromJson({
+        'role': 'assistant',
+        'text': 'Hello!',
+        'createdAt': '2026-09-23T17:05:00.000Z',
+      });
+
+      expect(restored.text, 'Hello!');
+      expect(restored.reasoning, isNull);
+    });
+
     test('toJson stores createdAt as a UTC ISO-8601 string', () {
       // A local time, so the test checks the conversion to UTC.
       final localTime = DateTime.utc(2026, 9, 23, 17, 5).toLocal();
@@ -83,39 +117,51 @@ void main() {
       }
     });
 
-    test('messages are equal only when role, text and time all match', () {
-      final time = DateTime.utc(2026, 9, 23, 17, 5);
-      final message = ChatMessage(
-        role: MessageRole.user,
-        text: 'hi',
-        createdAt: time,
-      );
-
-      // The same moment written in local time still counts as equal.
-      final sameMoment = ChatMessage(
-        role: MessageRole.user,
-        text: 'hi',
-        createdAt: time.toLocal(),
-      );
-      expect(sameMoment, message);
-      expect(sameMoment.hashCode, message.hashCode);
-
-      expect(
-        ChatMessage(role: MessageRole.assistant, text: 'hi', createdAt: time),
-        isNot(message),
-      );
-      expect(
-        ChatMessage(role: MessageRole.user, text: 'bye', createdAt: time),
-        isNot(message),
-      );
-      expect(
-        ChatMessage(
+    test(
+      'messages are equal only when role, text, reasoning and time match',
+      () {
+        final time = DateTime.utc(2026, 9, 23, 17, 5);
+        final message = ChatMessage(
           role: MessageRole.user,
           text: 'hi',
-          createdAt: time.add(const Duration(microseconds: 1)),
-        ),
-        isNot(message),
-      );
-    });
+          createdAt: time,
+        );
+
+        // The same moment written in local time still counts as equal.
+        final sameMoment = ChatMessage(
+          role: MessageRole.user,
+          text: 'hi',
+          createdAt: time.toLocal(),
+        );
+        expect(sameMoment, message);
+        expect(sameMoment.hashCode, message.hashCode);
+
+        expect(
+          ChatMessage(role: MessageRole.assistant, text: 'hi', createdAt: time),
+          isNot(message),
+        );
+        expect(
+          ChatMessage(role: MessageRole.user, text: 'bye', createdAt: time),
+          isNot(message),
+        );
+        expect(
+          ChatMessage(
+            role: MessageRole.user,
+            text: 'hi',
+            createdAt: time,
+            reasoning: 'thinking',
+          ),
+          isNot(message),
+        );
+        expect(
+          ChatMessage(
+            role: MessageRole.user,
+            text: 'hi',
+            createdAt: time.add(const Duration(microseconds: 1)),
+          ),
+          isNot(message),
+        );
+      },
+    );
   });
 }

@@ -23,7 +23,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   final http.Client _client;
 
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {
@@ -44,6 +44,8 @@ class OpenAiCompatibleProvider implements AiProvider {
     return parseReply(json);
   }
 
+  /// Sends only each message's text. Reasoning is never sent back, because
+  /// it's often longer than the answer and would crowd out the conversation.
   Map<String, Object?> buildRequestBody(
     String systemPrompt,
     List<ChatMessage> messages,
@@ -56,18 +58,53 @@ class OpenAiCompatibleProvider implements AiProvider {
     ],
   };
 
-  String parseReply(Map<String, dynamic> json) {
+  AiReply parseReply(Map<String, dynamic> json) {
     final choices = json['choices'];
     if (choices is List && choices.isNotEmpty) {
       final first = choices.first;
       final message = first is Map<String, dynamic> ? first['message'] : null;
-      final content = message is Map<String, dynamic>
-          ? message['content']
-          : null;
-      if (content is String && content.trim().isNotEmpty) {
-        return content.trim();
+      if (message is Map<String, dynamic>) {
+        final content = message['content'];
+        if (content is String) {
+          final reply = _withReasoning(
+            content,
+            _nonBlank(message['reasoning']) ??
+                _nonBlank(message['reasoning_content']),
+          );
+          if (reply.text.isNotEmpty) return reply;
+        }
       }
     }
     throw const BadResponseException('Missing choices[0].message.content');
   }
+
+  /// Splits [content] into the answer and the model's reasoning.
+  ///
+  /// The reasoning is [reasoning] when the API sent it separately, as
+  /// `reasoning` (OpenRouter, Ollama, vLLM) or `reasoning_content` (xAI,
+  /// llama.cpp and DeepSeek-style APIs). Otherwise it's everything before the
+  /// last `</think>` in [content], without a leading `<think>`. Some Qwen3
+  /// models send only the closing tag.
+  static AiReply _withReasoning(String content, String? reasoning) {
+    final end = content.lastIndexOf(_thinkEnd);
+    if (reasoning != null || end == -1) {
+      return AiReply(text: content.trim(), reasoning: reasoning);
+    }
+    var thinking = content.substring(0, end).trimLeft();
+    if (thinking.startsWith(_thinkStart)) {
+      thinking = thinking.substring(_thinkStart.length);
+    }
+    return AiReply(
+      text: content.substring(end + _thinkEnd.length).trim(),
+      reasoning: _nonBlank(thinking),
+    );
+  }
+
+  static const String _thinkStart = '<think>';
+  static const String _thinkEnd = '</think>';
+
+  /// [value] without surrounding whitespace, or null when it isn't a string
+  /// with some text in it.
+  static String? _nonBlank(Object? value) =>
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
 }

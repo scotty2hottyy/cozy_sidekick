@@ -186,6 +186,122 @@ void main() {
     expect(find.byType(FormattedReply), findsOneWidget);
   });
 
+  testWidgets('reasoning shows only while Show reasoning is on', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore(showReasoning: true);
+    final history = FakeChatHistoryStore()
+      ..messages = [
+        ChatMessage.user('Is 1001 prime?'),
+        ChatMessage.assistant('No.', reasoning: 'Try dividing by 7.'),
+      ];
+    await tester.pumpWidget(
+      _app(historyStore: history, settingsStore: settings),
+    );
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const Key('reasoningToggle'));
+    expect(toggle, findsOneWidget);
+    expect(find.text('Try dividing by 7.'), findsNothing);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Try dividing by 7.'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.text('Try dividing by 7.'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('settingsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('showReasoningSwitch')));
+    await tester.pumpAndSettle();
+    expect(settings.showReasoning, isFalse);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(toggle, findsNothing);
+    expect(find.text('No.'), findsOneWidget);
+    expect(history.messages.last.reasoning, 'Try dividing by 7.');
+  });
+
+  testWidgets('an open reply stays open while new messages arrive', (
+    tester,
+  ) async {
+    final history = FakeChatHistoryStore()
+      ..messages = [
+        ChatMessage.user('Is 1001 prime?'),
+        ChatMessage.assistant('No.', reasoning: 'Try dividing by 7.'),
+      ];
+    await tester.pumpWidget(
+      _app(
+        historyStore: history,
+        settingsStore: InMemorySettingsStore(showReasoning: true),
+        provider: _FakeProvider(reasoning: '1001 = 7 * 143.'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reasoningToggle')));
+    await tester.pumpAndSettle();
+
+    await _sendMessage(tester, 'Why?');
+
+    expect(find.text('Provider: Why?'), findsOneWidget);
+    expect(find.byKey(const Key('reasoningToggle')), findsNWidgets(2));
+    expect(find.text('Try dividing by 7.'), findsOneWidget);
+    expect(find.text('1001 = 7 * 143.'), findsNothing);
+    expect(history.messages.last.reasoning, '1001 = 7 * 143.');
+  });
+
+  testWidgets('long reasoning opens below its row and closes back into place', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final longReasoning = List<String>.generate(
+      80,
+      (i) => 'Step $i of the thinking.',
+    ).join('\n');
+    final history = FakeChatHistoryStore()
+      ..messages = [
+        for (var i = 0; i < 8; i++) ...[
+          ChatMessage.user('Question $i'),
+          ChatMessage.assistant('Answer $i'),
+        ],
+        ChatMessage.user('Is 1001 prime?'),
+        ChatMessage.assistant('No.', reasoning: longReasoning),
+      ];
+    await tester.pumpWidget(
+      _app(
+        historyStore: history,
+        settingsStore: InMemorySettingsStore(showReasoning: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const Key('reasoningToggle'));
+    final list = tester.getRect(find.byType(ListView));
+    final closedTop = tester.getTopLeft(toggle).dy;
+
+    // The reply grows upward, so the list scrolls to keep its row in view.
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    final openTop = tester.getTopLeft(toggle).dy;
+    expect(openTop, greaterThanOrEqualTo(list.top));
+    expect(openTop, lessThan(closedTop));
+    expect(
+      tester.getTopLeft(find.textContaining('Step 0 of')).dy,
+      greaterThan(openTop),
+    );
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(toggle).dy, moreOrLessEquals(closedTop));
+    expect(find.text('No.'), findsOneWidget);
+  });
+
   testWidgets('speech partial results fill input and listening can stop', (
     tester,
   ) async {
@@ -374,13 +490,19 @@ CozySidekickApp _app({
 }
 
 class _FakeProvider implements AiProvider {
+  _FakeProvider({this.reasoning});
+  final String? reasoning;
+
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {
     await Future<void>.delayed(const Duration(seconds: 1));
-    return 'Provider: ${messages.last.text}';
+    return AiReply(
+      text: 'Provider: ${messages.last.text}',
+      reasoning: reasoning,
+    );
   }
 }
 
@@ -391,13 +513,13 @@ class _FlakyProvider implements AiProvider {
   int calls = 0;
 
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {
     calls++;
     if (errors.isNotEmpty) throw errors.removeAt(0);
-    return 'Provider: ${messages.last.text}';
+    return AiReply(text: 'Provider: ${messages.last.text}');
   }
 }
 

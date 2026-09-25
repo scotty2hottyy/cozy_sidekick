@@ -13,6 +13,7 @@ class AiSettingsScreen extends StatefulWidget {
 
 class _AiSettingsScreenState extends State<AiSettingsScreen> {
   AiProviderType? _selected;
+  bool _showReasoning = false;
 
   @override
   void initState() {
@@ -22,13 +23,24 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
 
   Future<void> _load() async {
     final selected = await widget.settingsStore.loadSelectedProvider();
-    if (mounted) setState(() => _selected = selected);
+    final showReasoning = await widget.settingsStore.loadShowReasoning();
+    if (mounted) {
+      setState(() {
+        _selected = selected;
+        _showReasoning = showReasoning;
+      });
+    }
   }
 
   Future<void> _select(AiProviderType? provider) async {
     if (provider == null) return;
     setState(() => _selected = provider);
     await widget.settingsStore.saveSelectedProvider(provider);
+  }
+
+  Future<void> _setShowReasoning(bool value) async {
+    setState(() => _showReasoning = value);
+    await widget.settingsStore.saveShowReasoning(value);
   }
 
   @override
@@ -62,6 +74,17 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     )
                     .toList(),
                 onChanged: _select,
+              ),
+              const SizedBox(height: 16),
+              SwitchListTile(
+                key: const Key('showReasoningSwitch'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show reasoning'),
+                subtitle: const Text(
+                  'When a model shares its thinking, show it above the reply.',
+                ),
+                value: _showReasoning,
+                onChanged: _setShowReasoning,
               ),
             ],
           ),

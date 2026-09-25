@@ -137,6 +137,31 @@ void main() {
     }
   });
 
+  test('saves reasoning with the reply even while it is hidden', () async {
+    final history = FakeChatHistoryStore();
+    final settings = InMemorySettingsStore();
+    final service = ChatService(
+      historyStore: history,
+      settingsStore: settings,
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: _FakeProvider(
+          'No.',
+          reasoning: 'Try dividing by 7.',
+        ),
+      },
+    );
+    expect(await settings.loadShowReasoning(), isFalse);
+
+    final reply = await service.getReply(<ChatMessage>[
+      ChatMessage.user('Is 1001 prime?'),
+    ]);
+
+    expect(reply.text, 'No.');
+    expect(reply.reasoning, 'Try dividing by 7.');
+    expect(history.messages.last, reply);
+  });
+
   test('rejects an empty conversation', () {
     final service = ChatService(
       historyStore: FakeChatHistoryStore(),
@@ -149,14 +174,15 @@ void main() {
 }
 
 class _FakeProvider implements AiProvider {
-  _FakeProvider(this.reply, {this.beforeReply});
+  _FakeProvider(String text, {String? reasoning, this.beforeReply})
+    : reply = AiReply(text: text, reasoning: reasoning);
   final void Function()? beforeReply;
-  final String reply;
+  final AiReply reply;
   List<ChatMessage> lastMessages = <ChatMessage>[];
   String? lastSystemPrompt;
 
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {

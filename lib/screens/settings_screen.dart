@@ -39,7 +39,7 @@ class SettingsScreen extends StatelessWidget {
               context,
               Icons.route_rounded,
               'AI Settings',
-              'Choose a text-chat provider',
+              'Text-chat provider and reasoning',
               destination: AiSettingsScreen(settingsStore: settingsStore),
             ),
             _row(

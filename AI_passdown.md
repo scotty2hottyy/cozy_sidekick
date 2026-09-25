@@ -170,3 +170,11 @@ Validation:
 - While math is shown, `ChatService` adds `ChatService.mathInstruction` to the system prompt so models use `\( \)` and `\[ \]`.
 - Links are styled but don't open yet. That needs `url_launcher`.
 - Validation: `flutter analyze` passes; `flutter test` passes (111 tests). Checked in the iOS Simulator (iPhone 17 Pro) with sample replies loaded into the chat history. Landscape is covered by widget tests only.
+
+### Issue #34 - Show model reasoning
+- Providers return an `AiReply` (`text` plus an optional `reasoning`) instead of a `String`. New providers and test fakes must return one too.
+- `OpenAiCompatibleProvider.parseReply` takes reasoning from the first of these that isn't blank: `message.reasoning` (OpenRouter, Ollama, vLLM), `message.reasoning_content` (xAI, llama.cpp, DeepSeek-style), or the content before its last `</think>`, which is then removed from the answer. A reply that's only reasoning is still a `BadResponseException`. `CustomServerProvider` reads an optional `reasoning` string next to `message`. OpenAI's Chat Completions never returns reasoning.
+- `ChatMessage.reasoning` is saved in `chat_history.json` only when there is some, so older history still loads. It's saved even while Show reasoning is off. Requests never include it, because both providers send only `message.text`.
+- Settings → AI Settings has Show reasoning (`chat.show_reasoning`, off by default). `ChatScreen._loadChatSettings()` loads it with the formatting switches, so it applies when the user comes back from Settings.
+- `MessageBubble` shows a collapsed Reasoning row (`Key('reasoningToggle')`) above replies that have reasoning. `ChatScreen` remembers which replies are open, so they stay open while new messages arrive. The chat list is reversed, so opening long reasoning scrolls just enough to keep its row on screen, and closing puts the row back where it was.
+- Validation: `flutter analyze` passes; `flutter test` passes (135 tests). Checked in the iOS Simulator (iPhone 17 Pro) with sample replies loaded into the chat history. Not checked yet: a real OpenRouter reply with reasoning.
