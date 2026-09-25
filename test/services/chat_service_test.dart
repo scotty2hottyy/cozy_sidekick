@@ -162,6 +162,88 @@ void main() {
     expect(history.messages.last, reply);
   });
 
+  test('streams the reply so far and saves it once, at the end', () async {
+    final history = FakeChatHistoryStore();
+    const pieces = <AiReply>[
+      AiReply(text: '', reasoning: 'Try'),
+      AiReply(text: '', reasoning: 'Try dividing by 7.'),
+      AiReply(text: 'No,', reasoning: 'Try dividing by 7.'),
+      AiReply(text: 'No, 1001 = 7 * 143.', reasoning: 'Try dividing by 7.'),
+    ];
+    final service = ChatService(
+      historyStore: history,
+      settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: _FakeProvider.streaming(pieces),
+      },
+    );
+    final question = ChatMessage.user('Is 1001 prime?');
+
+    final replies = <ChatMessage>[];
+    await for (final reply in service.streamReply(<ChatMessage>[question])) {
+      // Nothing but the question is saved while the reply arrives.
+      expect(history.messages, <ChatMessage>[question]);
+      replies.add(reply);
+    }
+
+    expect(
+      replies.map(
+        (reply) => AiReply(text: reply.text, reasoning: reply.reasoning),
+      ),
+      pieces,
+    );
+    expect(
+      replies.every((reply) => reply.role == MessageRole.assistant),
+      isTrue,
+    );
+    expect(replies.map((reply) => reply.createdAt).toSet(), hasLength(1));
+    expect(history.saves, hasLength(2));
+    expect(history.messages, <ChatMessage>[question, replies.last]);
+  });
+
+  test('a reply that fails while it arrives saves only the question', () async {
+    final history = FakeChatHistoryStore();
+    final service = ChatService(
+      historyStore: history,
+      settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: _FakeProvider.streaming(const <AiReply>[
+          AiReply(text: 'No,'),
+        ], error: const NetworkException()),
+      },
+    );
+    final question = ChatMessage.user('Is 1001 prime?');
+
+    await expectLater(
+      service.streamReply(<ChatMessage>[question]),
+      emitsInOrder(<Object>[
+        isA<ChatMessage>().having((reply) => reply.text, 'text', 'No,'),
+        emitsError(isA<NetworkException>()),
+      ]),
+    );
+    expect(history.messages, <ChatMessage>[question]);
+    expect(history.saves, hasLength(1));
+  });
+
+  test('a provider that sends nothing is a bad response', () async {
+    final history = FakeChatHistoryStore();
+    final service = ChatService(
+      historyStore: history,
+      settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: _FakeProvider.streaming(const <AiReply>[]),
+      },
+    );
+    await expectLater(
+      service.getReply(<ChatMessage>[ChatMessage.user('Hi')]),
+      throwsA(isA<BadResponseException>()),
+    );
+    expect(history.saves, hasLength(1));
+  });
+
   test('rejects an empty conversation', () {
     final service = ChatService(
       historyStore: FakeChatHistoryStore(),
@@ -175,9 +257,15 @@ void main() {
 
 class _FakeProvider implements AiProvider {
   _FakeProvider(String text, {String? reasoning, this.beforeReply})
-    : reply = AiReply(text: text, reasoning: reasoning);
+    : pieces = <AiReply>[AiReply(text: text, reasoning: reasoning)],
+      error = null;
+
+  /// Streams each of [pieces], then fails with [error] if there is one.
+  _FakeProvider.streaming(this.pieces, {this.error}) : beforeReply = null;
+
   final void Function()? beforeReply;
-  final AiReply reply;
+  final List<AiReply> pieces;
+  final Object? error;
   List<ChatMessage> lastMessages = <ChatMessage>[];
   String? lastSystemPrompt;
 
@@ -185,10 +273,17 @@ class _FakeProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
-  }) async {
+  }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async* {
     beforeReply?.call();
     lastMessages = messages;
     lastSystemPrompt = systemPrompt;
-    return reply;
+    yield* Stream<AiReply>.fromIterable(pieces);
+    if (error != null) throw error!;
   }
 }

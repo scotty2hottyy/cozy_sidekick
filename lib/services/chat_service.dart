@@ -26,7 +26,13 @@ class ChatService {
   Future<List<ChatMessage>> loadHistory() => historyStore.load();
   Future<void> clearHistory() => historyStore.clear();
 
-  Future<ChatMessage> getReply(List<ChatMessage> conversation) async {
+  Future<ChatMessage> getReply(List<ChatMessage> conversation) =>
+      streamReply(conversation).last;
+
+  /// The assistant's reply while it arrives. Each event is the reply so far,
+  /// and they all have the same `createdAt`. The finished reply is saved
+  /// once, at the end, so a reply that fails leaves only the user's message.
+  Stream<ChatMessage> streamReply(List<ChatMessage> conversation) async* {
     if (conversation.isEmpty) {
       throw ArgumentError('conversation cannot be empty');
     }
@@ -41,7 +47,7 @@ class ChatService {
     }
     final personality = await personalityStore.loadActivePersonality();
     final formatting = await settingsStore.loadMessageFormatting();
-    final reply = await provider.sendChat(
+    final replies = provider.streamChat(
       systemPrompt: formatting.rendersMath
           ? '${personality.systemPrompt}\n\n$mathInstruction'
           : personality.systemPrompt,
@@ -49,13 +55,22 @@ class ChatService {
           ? snapshot.sublist(snapshot.length - 20)
           : snapshot,
     );
-    // Reasoning is kept even while Show reasoning is off, so turning it on
-    // later shows it for earlier replies too.
-    final message = ChatMessage.assistant(
-      reply.text,
-      reasoning: reply.reasoning,
-    );
+    final createdAt = DateTime.now();
+    ChatMessage? message;
+    await for (final reply in replies) {
+      // Reasoning is kept even while Show reasoning is off, so turning it on
+      // later shows it for earlier replies too.
+      message = ChatMessage(
+        role: MessageRole.assistant,
+        text: reply.text,
+        createdAt: createdAt,
+        reasoning: reply.reasoning,
+      );
+      yield message;
+    }
+    if (message == null) {
+      throw const BadResponseException('The provider sent no reply');
+    }
     await historyStore.save(<ChatMessage>[...snapshot, message]);
-    return message;
   }
 }

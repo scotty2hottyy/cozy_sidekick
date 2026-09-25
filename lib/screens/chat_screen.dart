@@ -54,6 +54,14 @@ class _ChatScreenState extends State<ChatScreen> {
   /// out of view.
   final Set<ChatMessage> _expandedReasoning = Set<ChatMessage>.identity();
 
+  /// The reply while it arrives, shown as the newest bubble. It moves into
+  /// [_messages] when it's finished. Every event is a new [ChatMessage], so
+  /// whether its reasoning is open is kept in [_liveReasoningExpanded]
+  /// instead of [_expandedReasoning].
+  ChatMessage? _liveReply;
+  bool _liveReasoningExpanded = false;
+  StreamSubscription<ChatMessage>? _replySubscription;
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +86,9 @@ class _ChatScreenState extends State<ChatScreen> {
   void _toggleReasoning(ChatMessage message) => setState(() {
     if (!_expandedReasoning.remove(message)) _expandedReasoning.add(message);
   });
+
+  void _toggleLiveReasoning() =>
+      setState(() => _liveReasoningExpanded = !_liveReasoningExpanded);
 
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
@@ -150,37 +161,71 @@ class _ChatScreenState extends State<ChatScreen> {
 
   SpeechServiceState _speechState = SpeechServiceState.idle;
 
-  Future<void> _send(String text) async {
+  void _send(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _busy) return;
     setState(() => _messages.add(ChatMessage.user(trimmed)));
-    await _requestReply();
+    _requestReply();
   }
 
   /// Asks again for a reply to the last message. A failed request leaves the
   /// user's message in the list, so nothing they typed is lost.
-  Future<void> _retry() async {
+  void _retry() {
     if (_busy || _messages.isEmpty || !_messages.last.isUser) return;
-    await _requestReply();
+    _requestReply();
   }
 
-  Future<void> _requestReply() async {
+  void _requestReply() {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    setState(() => _isSending = true);
-    try {
-      final reply = await widget.chatService.getReply(
-        List<ChatMessage>.of(_messages),
-      );
-      if (mounted) setState(() => _messages.add(reply));
-    } on AiProviderException catch (error) {
+    setState(() {
+      _isSending = true;
+      _liveReasoningExpanded = false;
+    });
+    _replySubscription = widget.chatService
+        .streamReply(List<ChatMessage>.of(_messages))
+        .listen(
+          (reply) => setState(() => _liveReply = reply),
+          onDone: _finishReply,
+          onError: _failReply,
+          cancelOnError: true,
+        );
+  }
+
+  void _finishReply() => setState(() {
+    final reply = _liveReply;
+    if (reply != null) {
+      _messages.add(reply);
+      if (_liveReasoningExpanded) _expandedReasoning.add(reply);
+    }
+    _liveReply = null;
+    _replySubscription = null;
+    _isSending = false;
+  });
+
+  /// The half-finished reply disappears, and the user's message stays so
+  /// Retry can ask again.
+  void _failReply(Object error) {
+    setState(() {
+      _liveReply = null;
+      _replySubscription = null;
+      _isSending = false;
+    });
+    if (error is AiProviderException) {
       debugPrint('Chat failed: $error'); // never includes keys
       _showError(friendlyMessage(error), openSettings: needsSettings(error));
-    } catch (error) {
+    } else {
       debugPrint('Unexpected chat error: $error');
       _showError('Something went wrong. Please try again.');
-    } finally {
-      if (mounted) setState(() => _isSending = false);
     }
+  }
+
+  /// The reply that's arriving, once it has something to show: some of the
+  /// answer, or reasoning while Show reasoning is on.
+  ChatMessage? get _shownLiveReply {
+    final reply = _liveReply;
+    if (reply == null) return null;
+    final hasReasoning = _showReasoning && reply.reasoning != null;
+    return reply.text.isNotEmpty || hasReasoning ? reply : null;
   }
 
   void _showError(String message, {bool openSettings = false}) {
@@ -211,7 +256,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-    if (mounted) await _retry();
+    if (mounted) _retry();
   }
 
   Future<void> _toggleSpeech() async {
@@ -253,82 +298,100 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    // The request itself stops when its next piece arrives, because the
+    // `await for` loops under this stream only notice a cancel then.
+    unawaited(_replySubscription?.cancel());
     _composerController.dispose();
     unawaited(widget.speechService.dispose());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 760),
-        child: Column(
-          children: <Widget>[
-            SafeArea(
-              bottom: false,
-              child: ChatHeader(onSettingsTap: _busy ? null : _openSettings),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text(
-                          'Say hi to your sidekick 👋',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      reverse: true,
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      itemCount: _messages.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (_, index) {
-                        final message = _messages[_messages.length - 1 - index];
-                        return MessageBubble(
-                          message: message,
-                          formatting: _formatting,
-                          showReasoning: _showReasoning,
-                          reasoningExpanded: _expandedReasoning.contains(
-                            message,
-                          ),
-                          onReasoningToggle: () => _toggleReasoning(message),
-                        );
-                      },
-                    ),
-            ),
-            if (_isSending)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                child: Row(
-                  children: <Widget>[
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 10),
-                    Text('Sidekick is typing…'),
-                  ],
-                ),
+  Widget build(BuildContext context) {
+    final liveReply = _shownLiveReply;
+    final messages = <ChatMessage>[..._messages, ?liveReply];
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: Column(
+            children: <Widget>[
+              SafeArea(
+                bottom: false,
+                child: ChatHeader(onSettingsTap: _busy ? null : _openSettings),
               ),
-            MessageComposer(
-              controller: _composerController,
-              onSend: _send,
-              onMicrophoneTap: _toggleSpeech,
-              enabled: !_busy,
-              isListening: _speechState == SpeechServiceState.listening,
-            ),
-          ],
+              const Divider(height: 1),
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : messages.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'Say hi to your sidekick 👋',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        reverse: true,
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        itemCount: messages.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (_, index) {
+                          final message = messages[messages.length - 1 - index];
+                          final isLive = identical(message, liveReply);
+                          return MessageBubble(
+                            message: message,
+                            formatting: _formatting,
+                            showReasoning: _showReasoning,
+                            reasoningExpanded: isLive
+                                ? _liveReasoningExpanded
+                                : _expandedReasoning.contains(message),
+                            onReasoningToggle: isLive
+                                ? _toggleLiveReasoning
+                                : () => _toggleReasoning(message),
+                          );
+                        },
+                      ),
+              ),
+              if (_isSending && liveReply == null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 10),
+                      // Reasoning that's arriving while Show reasoning is off.
+                      Text(
+                        _liveReply?.reasoning == null
+                            ? 'Sidekick is typing…'
+                            : 'Sidekick is thinking…',
+                      ),
+                    ],
+                  ),
+                ),
+              MessageComposer(
+                controller: _composerController,
+                onSend: _send,
+                onMicrophoneTap: _toggleSpeech,
+                enabled: !_busy,
+                isListening: _speechState == SpeechServiceState.listening,
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

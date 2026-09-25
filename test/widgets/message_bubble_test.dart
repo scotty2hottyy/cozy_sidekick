@@ -107,6 +107,65 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('while it thinks, the reasoning grows under an open row', (
+    tester,
+  ) async {
+    await _showBubble(
+      tester,
+      MessageBubble(
+        message: ChatMessage.assistant('', reasoning: thinking),
+        showReasoning: true,
+        onReasoningToggle: () {},
+      ),
+    );
+
+    final row = find.text('Thinking…');
+    expect(row, findsOneWidget);
+    expect(find.text('Reasoning'), findsNothing);
+    expect(find.text(thinking), findsOneWidget);
+    expect(
+      tester.getRect(row).bottom,
+      lessThanOrEqualTo(tester.getRect(find.text(thinking)).top),
+    );
+    // Nothing to tap, and no divider, since the answer hasn't started.
+    expect(toggle, findsNothing);
+    expect(find.byIcon(Icons.expand_more), findsNothing);
+    expect(find.byIcon(Icons.expand_less), findsNothing);
+    expect(find.byType(Divider), findsNothing);
+
+    final semantics = tester.ensureSemantics();
+    expect(
+      tester.getSemantics(row),
+      isSemantics(
+        label: 'Thinking…',
+        isButton: false,
+        hasTapAction: false,
+        hasExpandedState: false,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('the row counts the seconds until the answer starts', (
+    tester,
+  ) async {
+    MessageBubble bubble(String text) => MessageBubble(
+      message: ChatMessage.assistant(text, reasoning: thinking),
+      showReasoning: true,
+      onReasoningToggle: () {},
+    );
+    await _showBubble(tester, bubble(''));
+    expect(find.text('Thinking…'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Thinking… 1s'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 11));
+    expect(find.text('Thinking… 12s'), findsOneWidget);
+
+    await _showBubble(tester, bubble('No.'));
+    expect(find.text('Reasoning'), findsOneWidget);
+    expect(find.textContaining('Thinking'), findsNothing);
+  });
+
   testWidgets('without the setting or reasoning, bubbles look as before', (
     tester,
   ) async {

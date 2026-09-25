@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -46,6 +47,8 @@ class MessageBubble extends StatelessWidget {
     final reasoning = showReasoning && !message.isUser
         ? message.reasoning
         : null;
+    // A reply that's still arriving can have reasoning but no answer yet.
+    final thinking = reasoning != null && message.text.isEmpty;
     final bubble = Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
       decoration: BoxDecoration(
@@ -64,10 +67,11 @@ class MessageBubble extends StatelessWidget {
               children: <Widget>[
                 _Reasoning(
                   reasoning,
+                  thinking: thinking,
                   expanded: reasoningExpanded,
                   onToggle: onReasoningToggle,
                 ),
-                text,
+                if (!thinking) text,
               ],
             ),
     );
@@ -114,10 +118,16 @@ class MessageBubble extends StatelessWidget {
 class _Reasoning extends StatefulWidget {
   const _Reasoning(
     this.reasoning, {
+    required this.thinking,
     required this.expanded,
     required this.onToggle,
   });
   final String reasoning;
+
+  /// Whether the model is still thinking, before its answer starts. The row
+  /// then reads Thinking… and stays open, with the reasoning growing under
+  /// it.
+  final bool thinking;
   final bool expanded;
   final VoidCallback? onToggle;
 
@@ -132,11 +142,70 @@ class _ReasoningState extends State<_Reasoning> {
   /// Space kept between an opened row and the top of the chat list.
   static const double _topMargin = 8;
 
+  /// Ticks once a second while the model thinks, to show how long it's been.
+  Timer? _thinkingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateThinkingTimer();
+  }
+
+  @override
+  void didUpdateWidget(_Reasoning oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _updateThinkingTimer();
+  }
+
+  @override
+  void dispose() {
+    _thinkingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _updateThinkingTimer() {
+    if (widget.thinking) {
+      _thinkingTimer ??= Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => setState(() {}),
+      );
+    } else {
+      _thinkingTimer?.cancel();
+      _thinkingTimer = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = theme.colorScheme.onSurfaceVariant;
+    final thinking = widget.thinking;
+    final seconds = _thinkingTimer?.tick ?? 0;
     final onToggle = widget.onToggle;
+    final row = Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 4, 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.psychology_outlined, size: 18, color: color),
+          const SizedBox(width: 6),
+          Text(
+            !thinking
+                ? 'Reasoning'
+                : seconds == 0
+                ? 'Thinking…'
+                : 'Thinking… ${seconds}s',
+            style: theme.textTheme.labelLarge?.copyWith(color: color),
+          ),
+          if (!thinking)
+            Icon(
+              widget.expanded ? Icons.expand_less : Icons.expand_more,
+              size: 18,
+              color: color,
+            ),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -144,39 +213,24 @@ class _ReasoningState extends State<_Reasoning> {
           // Its own node, so screen readers don't read the reply as part of
           // the button.
           container: true,
-          button: true,
-          expanded: widget.expanded,
-          child: Material(
-            // Draws the tap ripple on top of the bubble instead of behind it.
-            type: MaterialType.transparency,
-            child: InkWell(
-              key: const Key('reasoningToggle'),
-              onTap: onToggle == null ? null : () => _toggle(onToggle),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(0, 4, 4, 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(Icons.psychology_outlined, size: 18, color: color),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Reasoning',
-                      style: theme.textTheme.labelLarge?.copyWith(color: color),
-                    ),
-                    Icon(
-                      widget.expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 18,
-                      color: color,
-                    ),
-                  ],
+          button: !thinking,
+          expanded: thinking ? null : widget.expanded,
+          child: thinking
+              ? row
+              : Material(
+                  // Draws the tap ripple on top of the bubble instead of
+                  // behind it.
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    key: const Key('reasoningToggle'),
+                    onTap: onToggle == null ? null : () => _toggle(onToggle),
+                    borderRadius: BorderRadius.circular(8),
+                    child: row,
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
         const SizedBox(height: 4),
-        if (widget.expanded)
+        if (thinking || widget.expanded)
           Column(
             key: _body,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,7 +239,9 @@ class _ReasoningState extends State<_Reasoning> {
                 widget.reasoning,
                 style: theme.textTheme.bodySmall?.copyWith(color: color),
               ),
-              const Divider(height: 24),
+              // It divides the reasoning from the answer, which hasn't
+              // started while the model is thinking.
+              if (!thinking) const Divider(height: 24),
             ],
           ),
       ],

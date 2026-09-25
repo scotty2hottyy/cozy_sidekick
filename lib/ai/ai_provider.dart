@@ -52,6 +52,13 @@ abstract interface class AiProvider {
     required String systemPrompt,
     required List<ChatMessage> messages,
   });
+
+  /// The reply as it's written. Each event is the whole reply so far, and
+  /// the last event is the finished reply, the same one [sendChat] returns.
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  });
 }
 
 /// [debugMessage] is for logs only. Show users `friendlyMessage` from
@@ -81,7 +88,7 @@ class RateLimitException extends AiProviderException {
 }
 
 class ProviderUnavailableException extends AiProviderException {
-  const ProviderUnavailableException() : super('HTTP 5xx');
+  const ProviderUnavailableException([super.debugMessage = 'HTTP 5xx']);
 }
 
 class NetworkException extends AiProviderException {
