@@ -30,7 +30,7 @@ void main() {
         ChatMessage.assistant('two'),
       ],
     );
-    expect(reply, 'Hello');
+    expect(reply, const AiReply(text: 'Hello'));
     expect(
       captured.url.toString(),
       'https://openrouter.ai/api/v1/chat/completions',

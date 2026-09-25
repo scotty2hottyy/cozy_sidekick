@@ -39,6 +39,15 @@ void main() {
     expect(prefs.getBool('chat.dollar_math'), isTrue);
   });
 
+  test('show reasoning is off by default and survives a restart', () async {
+    final first = SettingsService();
+    expect(await first.loadShowReasoning(), isFalse);
+    await first.saveShowReasoning(true);
+    expect(await SettingsService().loadShowReasoning(), isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('chat.show_reasoning'), isTrue);
+  });
+
   test('accepts http/https and rejects invalid custom URLs', () {
     expect(SettingsService.isValidBaseUrl('https://example.com'), isTrue);
     expect(SettingsService.isValidBaseUrl('http://localhost:8080'), isTrue);

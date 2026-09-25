@@ -25,8 +25,30 @@ enum AiProviderType {
   final String? keyUrl;
 }
 
+/// What a provider sends back for one chat request.
+class AiReply {
+  const AiReply({required this.text, this.reasoning});
+
+  /// The answer to show in the chat.
+  final String text;
+
+  /// The model's thinking before it answered, or null when it didn't share
+  /// any.
+  final String? reasoning;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AiReply && other.text == text && other.reasoning == reasoning;
+
+  @override
+  int get hashCode => Object.hash(text, reasoning);
+
+  @override
+  String toString() => 'AiReply("$text", reasoning: $reasoning)';
+}
+
 abstract interface class AiProvider {
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   });

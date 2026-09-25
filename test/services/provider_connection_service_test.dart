@@ -39,11 +39,11 @@ class _ResultProvider implements AiProvider {
   _ResultProvider(this.error);
   final Object? error;
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {
     if (error != null) throw error!;
-    return 'OK';
+    return const AiReply(text: 'OK');
   }
 }

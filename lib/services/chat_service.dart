@@ -49,7 +49,12 @@ class ChatService {
           ? snapshot.sublist(snapshot.length - 20)
           : snapshot,
     );
-    final message = ChatMessage.assistant(reply);
+    // Reasoning is kept even while Show reasoning is off, so turning it on
+    // later shows it for earlier replies too.
+    final message = ChatMessage.assistant(
+      reply.text,
+      reasoning: reply.reasoning,
+    );
     await historyStore.save(<ChatMessage>[...snapshot, message]);
     return message;
   }

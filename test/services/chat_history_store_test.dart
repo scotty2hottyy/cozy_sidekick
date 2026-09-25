@@ -26,6 +26,22 @@ void main() {
     final reopened = FileChatHistoryStore(directory: () async => dir);
     expect(await reopened.load(), messages);
   });
+  test('reasoning survives a restart, and older history still loads', () async {
+    final messages = [
+      ChatMessage.user('Is 1001 prime?'),
+      ChatMessage.assistant('No.', reasoning: 'Try dividing by 7.'),
+    ];
+    await store.save(messages);
+    final reopened = FileChatHistoryStore(directory: () async => dir);
+    expect(await reopened.load(), messages);
+
+    await File('${dir.path}/chat_history.json').writeAsString(
+      '[{"role":"assistant","text":"Hi","createdAt":"2026-01-01T00:00:00.000Z"}]',
+    );
+    final older = await reopened.load();
+    expect(older.single.text, 'Hi');
+    expect(older.single.reasoning, isNull);
+  });
   test('clear removes the history file', () async {
     await store.save([ChatMessage.user('Hello')]);
     await store.clear();

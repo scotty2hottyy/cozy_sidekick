@@ -18,7 +18,7 @@ class CustomServerProvider implements AiProvider {
   final http.Client _client;
 
   @override
-  Future<String> sendChat({
+  Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async {
@@ -40,6 +40,7 @@ class CustomServerProvider implements AiProvider {
       body: <String, Object?>{
         'messages': <Map<String, String>>[
           <String, String>{'role': 'system', 'content': systemPrompt},
+          // Only the text. Reasoning is never sent back to the server.
           for (final message in messages)
             <String, String>{
               'role': message.role.name,
@@ -52,6 +53,13 @@ class CustomServerProvider implements AiProvider {
     if (reply is! String || reply.trim().isEmpty) {
       throw const BadResponseException('Missing message');
     }
-    return reply.trim();
+    // A server can share the model's thinking in an optional field.
+    final reasoning = json['reasoning'];
+    return AiReply(
+      text: reply.trim(),
+      reasoning: reasoning is String && reasoning.trim().isNotEmpty
+          ? reasoning.trim()
+          : null,
+    );
   }
 }

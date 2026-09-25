@@ -47,6 +47,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isClearing = false;
   bool get _busy => _isLoading || _isSending || _isClearing;
   MessageFormatting _formatting = const MessageFormatting();
+  bool _showReasoning = false;
+
+  /// Replies whose reasoning is open. They're kept here rather than in each
+  /// bubble, so a reply stays open while new messages arrive or it scrolls
+  /// out of view.
+  final Set<ChatMessage> _expandedReasoning = Set<ChatMessage>.identity();
 
   @override
   void initState() {
@@ -60,8 +66,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// away.
   Future<void> _loadChatSettings() async {
     final formatting = await widget.settingsStore.loadMessageFormatting();
-    if (mounted) setState(() => _formatting = formatting);
+    final showReasoning = await widget.settingsStore.loadShowReasoning();
+    if (mounted) {
+      setState(() {
+        _formatting = formatting;
+        _showReasoning = showReasoning;
+      });
+    }
   }
+
+  void _toggleReasoning(ChatMessage message) => setState(() {
+    if (!_expandedReasoning.remove(message)) _expandedReasoning.add(message);
+  });
 
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
@@ -119,7 +135,12 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (confirmed != true || !mounted) return;
       await widget.chatService.clearHistory();
-      if (mounted) setState(_messages.clear);
+      if (mounted) {
+        setState(() {
+          _messages.clear();
+          _expandedReasoning.clear();
+        });
+      }
     } on Exception {
       _showStorageError('Could not clear saved chat. Please try again.');
     } finally {
@@ -269,10 +290,18 @@ class _ChatScreenState extends State<ChatScreen> {
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       itemCount: _messages.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (_, index) => MessageBubble(
-                        message: _messages[_messages.length - 1 - index],
-                        formatting: _formatting,
-                      ),
+                      itemBuilder: (_, index) {
+                        final message = _messages[_messages.length - 1 - index];
+                        return MessageBubble(
+                          message: message,
+                          formatting: _formatting,
+                          showReasoning: _showReasoning,
+                          reasoningExpanded: _expandedReasoning.contains(
+                            message,
+                          ),
+                          onReasoningToggle: () => _toggleReasoning(message),
+                        );
+                      },
                     ),
             ),
             if (_isSending)
