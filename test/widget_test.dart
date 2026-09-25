@@ -452,6 +452,181 @@ void main() {
     expect(find.textContaining('internal detail'), findsNothing);
     expect(find.widgetWithText(SnackBarAction, 'Retry'), findsOneWidget);
   });
+
+  group('streaming', () {
+    const thinking = 'Try dividing by 7.';
+    const answer = 'No, 1001 is 7 times 143.';
+    final toggle = find.byKey(const Key('reasoningToggle'));
+
+    testWidgets('thinking streams under an open row until the answer starts', (
+      tester,
+    ) async {
+      final history = FakeChatHistoryStore();
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(
+        _app(
+          historyStore: history,
+          settingsStore: InMemorySettingsStore(showReasoning: true),
+          provider: provider,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'Is 1001 prime?');
+      expect(find.text('Sidekick is typing…'), findsOneWidget);
+
+      provider.add('', reasoning: 'Try dividing');
+      await tester.pump(Duration.zero);
+      expect(find.text('Thinking…'), findsOneWidget);
+      expect(find.text('Try dividing'), findsOneWidget);
+      expect(find.text('Sidekick is typing…'), findsNothing);
+      expect(toggle, findsNothing);
+
+      provider.add('', reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.text(thinking), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Thinking… 2s'), findsOneWidget);
+
+      // The reasoning collapses into the usual row, and the answer types out.
+      provider.add('No,', reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.textContaining('Thinking…'), findsNothing);
+      expect(toggle, findsOneWidget);
+      expect(find.text(thinking), findsNothing);
+      expect(find.text('No,'), findsOneWidget);
+
+      provider.add(answer, reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.text(answer), findsOneWidget);
+      expect(history.messages.map((m) => m.text), <String>['Is 1001 prime?']);
+
+      await provider.finish();
+      await tester.pumpAndSettle();
+      expect(find.text(answer), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(history.saves, hasLength(2));
+      expect(history.messages.last.text, answer);
+      expect(history.messages.last.reasoning, thinking);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.text(thinking), findsOneWidget);
+    });
+
+    testWidgets('reasoning opened while the answer arrives stays open', (
+      tester,
+    ) async {
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(
+        _app(
+          settingsStore: InMemorySettingsStore(showReasoning: true),
+          provider: provider,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'Is 1001 prime?');
+      provider.add('No,', reasoning: thinking);
+      await tester.pump(Duration.zero);
+
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(find.text(thinking), findsOneWidget);
+      provider.add(answer, reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.text(thinking), findsOneWidget);
+
+      await provider.finish();
+      await tester.pumpAndSettle();
+      expect(find.text(thinking), findsOneWidget);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.text(thinking), findsNothing);
+    });
+
+    testWidgets('with Show reasoning off, the typing line says thinking', (
+      tester,
+    ) async {
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(_app(provider: provider));
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'Is 1001 prime?');
+      expect(find.text('Sidekick is typing…'), findsOneWidget);
+
+      provider.add('', reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.text('Sidekick is thinking…'), findsOneWidget);
+      expect(find.text('Sidekick is typing…'), findsNothing);
+      expect(find.text('Thinking…'), findsNothing);
+      expect(find.text(thinking), findsNothing);
+
+      provider.add('No,', reasoning: thinking);
+      await tester.pump(Duration.zero);
+      expect(find.text('Sidekick is thinking…'), findsNothing);
+      expect(find.text('No,'), findsOneWidget);
+      expect(toggle, findsNothing);
+      expect(find.text(thinking), findsNothing);
+
+      await provider.finish();
+      await tester.pumpAndSettle();
+      expect(find.text('No,'), findsOneWidget);
+      expect(toggle, findsNothing);
+    });
+
+    testWidgets('an error mid-reply removes it, and Retry asks again', (
+      tester,
+    ) async {
+      final history = FakeChatHistoryStore();
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(_app(historyStore: history, provider: provider));
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'Hello');
+      provider.add('Half of a');
+      await tester.pump(Duration.zero);
+      expect(find.text('Half of a'), findsOneWidget);
+
+      provider.fail(const NetworkException());
+      await tester.pumpAndSettle();
+      expect(find.text('Half of a'), findsNothing);
+      expect(find.text('Hello'), findsOneWidget);
+      expect(
+        find.text("Can't connect. Check your internet connection."),
+        findsOneWidget,
+      );
+      expect(history.messages.map((m) => m.text), <String>['Hello']);
+
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Retry'));
+      await tester.pump();
+      expect(provider.calls, 2);
+      provider.add('Hi there!');
+      await provider.finish();
+      await tester.pumpAndSettle();
+      expect(find.text('Hello'), findsOneWidget);
+      expect(find.text('Hi there!'), findsOneWidget);
+      expect(history.messages.map((m) => m.text), <String>[
+        'Hello',
+        'Hi there!',
+      ]);
+    });
+
+    testWidgets('leaving the chat stops the reply', (tester) async {
+      final history = FakeChatHistoryStore();
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(_app(historyStore: history, provider: provider));
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'Hello');
+      provider.add('Half of a');
+      await tester.pump(Duration.zero);
+      expect(provider.listening, isTrue);
+
+      // An `await for` in an async* function only notices the cancel when
+      // the next piece arrives, so that's when the request stops.
+      await tester.pumpWidget(const SizedBox());
+      provider.add('Half of a sentence');
+      await tester.pump(Duration.zero);
+      expect(provider.listening, isFalse);
+      expect(history.messages.map((m) => m.text), <String>['Hello']);
+    });
+  });
 }
 
 Future<void> _sendMessage(WidgetTester tester, String text) async {
@@ -459,6 +634,14 @@ Future<void> _sendMessage(WidgetTester tester, String text) async {
   await tester.pump();
   await tester.tap(find.byKey(const Key('sendButton')));
   await tester.pumpAndSettle();
+}
+
+/// Sends [text] without waiting for the reply.
+Future<void> _startMessage(WidgetTester tester, String text) async {
+  await tester.enterText(find.byKey(const Key('messageInput')), text);
+  await tester.pump();
+  await tester.tap(find.byKey(const Key('sendButton')));
+  await tester.pump();
 }
 
 CozySidekickApp _app({
@@ -504,6 +687,14 @@ class _FakeProvider implements AiProvider {
       reasoning: reasoning,
     );
   }
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async* {
+    yield await sendChat(systemPrompt: systemPrompt, messages: messages);
+  }
 }
 
 /// Throws each of [errors] in turn, then replies like [_FakeProvider].
@@ -520,6 +711,51 @@ class _FlakyProvider implements AiProvider {
     calls++;
     if (errors.isNotEmpty) throw errors.removeAt(0);
     return AiReply(text: 'Provider: ${messages.last.text}');
+  }
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async* {
+    yield await sendChat(systemPrompt: systemPrompt, messages: messages);
+  }
+}
+
+/// Hands out the pieces of each reply as the test adds them.
+///
+/// After adding a piece, call `tester.pump(Duration.zero)`. It runs the
+/// microtasks that carry the piece to the chat, then draws it. A plain
+/// `pump()` only draws when a frame was already scheduled.
+class _StreamingProvider implements AiProvider {
+  StreamController<AiReply> _reply = StreamController<AiReply>();
+  int calls = 0;
+
+  /// Sends the reply so far.
+  void add(String text, {String? reasoning}) =>
+      _reply.add(AiReply(text: text, reasoning: reasoning));
+
+  void fail(Object error) => _reply.addError(error);
+
+  Future<void> finish() => _reply.close();
+
+  /// Whether anyone is still waiting for the reply.
+  bool get listening => _reply.hasListener;
+
+  @override
+  Future<AiReply> sendChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) {
+    calls++;
+    _reply = StreamController<AiReply>();
+    return _reply.stream;
   }
 }
 

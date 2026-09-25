@@ -36,6 +36,33 @@ void main() {
     expect(messages.map((e) => e['role']), <String>['system', 'user']);
   });
 
+  test('streams its whole reply as one event', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.customServer, 'token');
+    final provider = CustomServerProvider(
+      keyStore: keys,
+      settingsStore: InMemorySettingsStore(
+        customServerBaseUrl: 'https://example.com',
+      ),
+      client: MockClient(
+        (_) async => http.Response(
+          '{"message":"No.","reasoning":"Try dividing by 7."}',
+          200,
+        ),
+      ),
+    );
+    Stream<AiReply> stream() => provider.streamChat(
+      systemPrompt: 'system',
+      messages: <ChatMessage>[ChatMessage.user('Is 1001 prime?')],
+    );
+
+    expect(await stream().toList(), const <AiReply>[
+      AiReply(text: 'No.', reasoning: 'Try dividing by 7.'),
+    ]);
+    await keys.delete(AiProviderType.customServer);
+    await expectLater(stream(), emitsError(isA<MissingApiKeyException>()));
+  });
+
   test('reads optional reasoning and never sends it back', () async {
     final keys = InMemoryApiKeyStore();
     await keys.save(AiProviderType.customServer, 'token');

@@ -62,4 +62,14 @@ class CustomServerProvider implements AiProvider {
           : null,
     );
   }
+
+  /// The server's `/chat` endpoint sends one JSON reply, so the stream has a
+  /// single event.
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) async* {
+    yield await sendChat(systemPrompt: systemPrompt, messages: messages);
+  }
 }

@@ -46,4 +46,12 @@ class _ResultProvider implements AiProvider {
     if (error != null) throw error!;
     return const AiReply(text: 'OK');
   }
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) => Stream<AiReply>.fromFuture(
+    sendChat(systemPrompt: systemPrompt, messages: messages),
+  );
 }

@@ -145,4 +145,10 @@ class _OkProvider implements AiProvider {
     required String systemPrompt,
     required List<ChatMessage> messages,
   }) async => const AiReply(text: 'OK');
+
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+  }) => Stream<AiReply>.value(const AiReply(text: 'OK'));
 }
