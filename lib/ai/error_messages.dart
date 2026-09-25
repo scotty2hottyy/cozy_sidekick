@@ -7,6 +7,9 @@ import 'ai_provider.dart';
 String friendlyMessage(AiProviderException e) => switch (e) {
   MissingApiKeyException() => 'Add a key in Settings to start chatting.',
   InvalidApiKeyException() => "That key wasn't accepted. Check it in Settings.",
+  ModelNotAvailableException() =>
+    "This model isn't available for your account. Check the model or your "
+        "provider's settings.",
   RateLimitException() =>
     'Too many messages right now. Wait a moment and try again.',
   ProviderUnavailableException() =>
@@ -22,6 +25,7 @@ String friendlyMessage(AiProviderException e) => switch (e) {
 bool needsSettings(AiProviderException e) => switch (e) {
   MissingApiKeyException() ||
   InvalidApiKeyException() ||
+  ModelNotAvailableException() ||
   ProviderConfigurationException() => true,
   RateLimitException() ||
   ProviderUnavailableException() ||

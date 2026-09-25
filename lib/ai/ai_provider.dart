@@ -50,6 +50,10 @@ class InvalidApiKeyException extends AiProviderException {
   const InvalidApiKeyException() : super('HTTP 401/403');
 }
 
+class ModelNotAvailableException extends AiProviderException {
+  const ModelNotAvailableException(super.debugMessage);
+}
+
 class RateLimitException extends AiProviderException {
   const RateLimitException() : super('HTTP 429');
 }

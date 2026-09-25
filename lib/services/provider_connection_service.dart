@@ -5,6 +5,7 @@ enum ConnectionTestStatus {
   success,
   noCredential,
   invalidCredential,
+  modelNotAvailable,
   rateLimit,
   networkUnavailable,
   providerUnavailable,
@@ -23,6 +24,9 @@ class ConnectionTestResult {
     ConnectionTestStatus.noCredential => 'No credential saved',
     ConnectionTestStatus.invalidCredential =>
       'Authentication failed. Check the saved credential.',
+    ConnectionTestStatus.modelNotAvailable =>
+      "The credential was accepted, but the model isn't available for this "
+          'account.',
     ConnectionTestStatus.rateLimit => 'Rate limit reached. Try again later.',
     ConnectionTestStatus.networkUnavailable =>
       'Network unavailable or the request timed out.',
@@ -65,6 +69,8 @@ class ProviderConnectionService implements ConnectionTester {
       return const ConnectionTestResult(ConnectionTestStatus.noCredential);
     } on InvalidApiKeyException {
       return const ConnectionTestResult(ConnectionTestStatus.invalidCredential);
+    } on ModelNotAvailableException {
+      return const ConnectionTestResult(ConnectionTestStatus.modelNotAvailable);
     } on RateLimitException {
       return const ConnectionTestResult(ConnectionTestStatus.rateLimit);
     } on NetworkException catch (_) {

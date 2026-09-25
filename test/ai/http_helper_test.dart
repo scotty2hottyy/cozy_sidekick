@@ -42,6 +42,75 @@ void main() {
     });
   }
 
+  // What OpenAI sends when a project's model allowlist blocks the model.
+  const modelNotFound =
+      '{"error":{"message":"Project `proj_abc` does not have access to model '
+      '`gpt-6-luna`","type":"invalid_request_error","param":null,'
+      '"code":"model_not_found"}}';
+
+  for (final code in <int>[403, 404]) {
+    test('$code model_not_found maps to ModelNotAvailableException', () {
+      expect(
+        _post(code, modelNotFound),
+        throwsA(
+          isA<ModelNotAvailableException>().having(
+            (e) => e.debugMessage,
+            'debugMessage',
+            'HTTP $code model_not_found: Project `proj_abc` does not have '
+                'access to model `gpt-6-luna`',
+          ),
+        ),
+      );
+    });
+  }
+
+  test('model_not_found without a message still maps', () {
+    expect(
+      _post(404, '{"error":{"code":"model_not_found"}}'),
+      throwsA(
+        isA<ModelNotAvailableException>().having(
+          (e) => e.debugMessage,
+          'debugMessage',
+          'HTTP 404 model_not_found',
+        ),
+      ),
+    );
+  });
+
+  test('other 403 and 404 bodies keep their usual errors', () async {
+    for (final body in <String>[
+      '',
+      '<html>Forbidden</html>',
+      '[]',
+      'null',
+      '{"error":"model_not_found"}',
+      '{"error":{"code":403,"message":"Forbidden"}}',
+      '{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}',
+      '{"code":"model_not_found"}',
+    ]) {
+      await expectLater(
+        _post(403, body),
+        throwsA(isA<InvalidApiKeyException>()),
+        reason: body,
+      );
+      await expectLater(
+        _post(404, body),
+        throwsA(
+          isA<BadResponseException>().having(
+            (e) => e.debugMessage,
+            'debugMessage',
+            'HTTP 404',
+          ),
+        ),
+        reason: body,
+      );
+    }
+  });
+
+  test('a 401 is a key problem even with a model_not_found body', () {
+    expect(_post(401, modelNotFound), throwsA(isA<InvalidApiKeyException>()));
+  });
+
   test('rejects non-JSON and maps client failures', () async {
     expect(
       postJson(
@@ -63,3 +132,10 @@ void main() {
     );
   });
 }
+
+Future<Map<String, dynamic>> _post(int statusCode, String body) => postJson(
+  MockClient((_) async => http.Response(body, statusCode)),
+  Uri.parse('https://example.com'),
+  headers: <String, String>{},
+  body: <String, Object?>{},
+);

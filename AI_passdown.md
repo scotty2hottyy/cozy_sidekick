@@ -145,3 +145,9 @@ Validation:
 - Added a Startup default dropdown listing presets and saved personalities independently of current selection. Selecting it persists the default without changing the current personality; choosing a preset directly still changes only the current session. Presets saved as defaults remain chips, avoiding duplicate large cards.
 
 - Preset customization saved with its original name now receives a Custom suffix (for example CuriousCustom). User-entered names remain unchanged.
+
+### Issue #40 - Model-access errors
+- `postJson` now reads the body of 403 and 404 responses. OpenAI's `model_not_found` (the project's model allowlist blocks the model, or the model ID is unknown) raises the new `ModelNotAvailableException` instead of `InvalidApiKeyException` or `BadResponseException('HTTP 404')`. Every other 401/403 is still a key error, and other bodies keep their old mapping.
+- Chat shows "This model isn't available for your account. Check the model or your provider's settings." with a Settings action. Test Connection shows "The credential was accepted, but the model isn't available for this account."
+- A new `AiProviderException` subtype must also be caught in `ProviderConnectionService.testConnection`. The compiler only flags the `friendlyMessage` and `needsSettings` switches.
+- Validation: `flutter analyze` passes; `flutter test` passes (82 tests).

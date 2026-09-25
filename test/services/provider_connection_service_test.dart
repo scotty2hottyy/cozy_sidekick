@@ -9,6 +9,8 @@ void main() {
       null: ConnectionTestStatus.success,
       const MissingApiKeyException(): ConnectionTestStatus.noCredential,
       const InvalidApiKeyException(): ConnectionTestStatus.invalidCredential,
+      const ModelNotAvailableException('HTTP 403 model_not_found'):
+          ConnectionTestStatus.modelNotAvailable,
       const NetworkException(): ConnectionTestStatus.networkUnavailable,
       const ProviderConfigurationException('bad'):
           ConnectionTestStatus.invalidConfiguration,
@@ -23,6 +25,13 @@ void main() {
       expect(result.status, entry.value);
       expect(result.message, isNotEmpty);
     }
+  });
+
+  test('every status has its own message', () {
+    final messages = ConnectionTestStatus.values.map(
+      (status) => ConnectionTestResult(status).message,
+    );
+    expect(messages.toSet(), hasLength(ConnectionTestStatus.values.length));
   });
 }
 
