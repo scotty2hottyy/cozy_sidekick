@@ -2,6 +2,7 @@ import '../fake_chat_history_store.dart';
 
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/models/personality.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
@@ -93,13 +94,14 @@ void main() {
     );
     expect(custom.lastMessages.single.text, 'Hi');
 
-    await personalities.setActivePersonality('curious-guide');
+    final curious = Personality.presets.first;
+    await personalities.savePersonalities([
+      ...await personalities.loadPersonalities(),
+      curious,
+    ]);
+    await personalities.setActivePersonality(curious.id);
     await service.getReply(<ChatMessage>[ChatMessage.user('Who are you?')]);
-    expect(
-      custom.lastSystemPrompt,
-      'You are a curious guide. Help explore ideas with clear explanations '
-      'and useful questions.',
-    );
+    expect(custom.lastSystemPrompt, curious.systemPrompt);
   });
 
   test('rejects an empty conversation', () {

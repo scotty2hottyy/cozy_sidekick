@@ -190,6 +190,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cozy Sidekick'), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('addPersonalityButton')),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addPersonalityButton')));
     await tester.pumpAndSettle();
     await tester.enterText(

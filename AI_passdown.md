@@ -126,3 +126,12 @@ Validation:
 2. Manually validate personality persistence across a full app restart and confirm chat requests use the selected prompt.
 3. Manually verify chat history survives a physical-device close/reopen cycle and clear-chat persists.
 4. Manually validate issue #2 on physical iPhone and Android devices.
+
+### Five personality presets
+- Added Cozy, Curious, Adventure, Planner, and Captain Quip as constant `Personality.presets`.
+- The horizontal Start from a preset chips open the existing editable name/system-instructions dialog. Only Save creates a personality; Cancel leaves stored personalities and the active selection untouched.
+- Adapted the proposed trait/description design to the existing name/systemPrompt model; no storage migration or changes to existing user personalities/defaults.
+- Added model validation and widget coverage for all five chips, editing, cancel, and explicit save.
+
+### Preset layout cleanup
+- Cozy remains the seeded large card; top preset chips are Curious, Adventure, Planner, and Captain Quip. Removed the Cozy chip and legacy unmodified Curious Guide seed, including saved copies on initialization. Customized Curious entries are preserved. Removed active legacy entries fall back to a remaining default.

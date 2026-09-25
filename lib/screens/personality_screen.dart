@@ -32,10 +32,14 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
     });
   }
 
-  Future<void> _editPersonality([Personality? personality]) async {
+  Future<void> _editPersonality({
+    Personality? personality,
+    Personality? preset,
+  }) async {
     final result = await showDialog<_PersonalityDraft>(
       context: context,
-      builder: (context) => _PersonalityDialog(personality: personality),
+      builder: (context) =>
+          _PersonalityDialog(personality: personality, preset: preset),
     );
     if (result == null || !mounted) return;
 
@@ -103,10 +107,32 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
+                  Text(
+                    'Start from a preset',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final preset in Personality.presets)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ActionChip(
+                              key: ValueKey(preset.id),
+                              label: Text(preset.name),
+                              onPressed: () => _editPersonality(preset: preset),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   for (final personality in _personalities)
                     _PersonalityCard(
                       personality: personality,
-                      onEdit: () => _editPersonality(personality),
+                      onEdit: () => _editPersonality(personality: personality),
                       onDelete: personality.isDefault
                           ? null
                           : () => _deletePersonality(personality),
@@ -197,7 +223,9 @@ class _PersonalityDraft {
 }
 
 class _PersonalityDialog extends StatefulWidget {
-  const _PersonalityDialog({this.personality});
+  const _PersonalityDialog({this.personality, this.preset});
+
+  final Personality? preset;
 
   final Personality? personality;
 
@@ -214,10 +242,9 @@ class _PersonalityDialogState extends State<_PersonalityDialog> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.personality?.name);
-    _promptController = TextEditingController(
-      text: widget.personality?.systemPrompt,
-    );
+    final initial = widget.personality ?? widget.preset;
+    _nameController = TextEditingController(text: initial?.name);
+    _promptController = TextEditingController(text: initial?.systemPrompt);
     _isDefault = widget.personality?.isDefault ?? false;
   }
 

@@ -26,13 +26,6 @@ class PersonalityService implements PersonalityStore {
           'clear, and supportive.',
       isDefault: true,
     ),
-    Personality(
-      id: 'curious-guide',
-      name: 'Curious Guide',
-      systemPrompt:
-          'You are a curious guide. Help explore ideas with clear explanations '
-          'and useful questions.',
-    ),
   ];
 
   Future<void>? _initialization;
@@ -61,6 +54,19 @@ class PersonalityService implements PersonalityStore {
     } on Object {
       loaded = List<Personality>.of(defaultPersonalities);
     }
+
+    // Remove the old seeded duplicate, retaining any user-customized version.
+    loaded = loaded
+        .where(
+          (item) =>
+              !(item.id == 'curious-guide' &&
+                  item.name == 'Curious Guide' &&
+                  item.systemPrompt ==
+                      'You are a curious guide. Help explore ideas with clear explanations '
+                          'and useful questions.'),
+        )
+        .toList();
+    if (loaded.isEmpty) loaded = List<Personality>.of(defaultPersonalities);
 
     final savedActiveId = prefs.getString(_activeIdKey);
     final hasSavedActive = loaded.any((item) => item.id == savedActiveId);
