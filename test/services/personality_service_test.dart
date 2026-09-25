@@ -7,6 +7,77 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test(
+    'preset default survives restart without changing current personality',
+    () async {
+      final store = PersonalityService();
+      final saved = await store.loadPersonalities();
+      final planner = Personality.presets.singleWhere(
+        (p) => p.id == 'preset-planner',
+      );
+      await store.savePersonalities([
+        for (final p in saved)
+          Personality(id: p.id, name: p.name, systemPrompt: p.systemPrompt),
+        Personality(
+          id: planner.id,
+          name: planner.name,
+          systemPrompt: planner.systemPrompt,
+          isDefault: true,
+        ),
+      ]);
+      expect((await store.loadActivePersonality()).id, 'cozy-sidekick');
+      await store.setActivePersonality('preset-curious');
+      expect(
+        (await PersonalityService().loadActivePersonality()).id,
+        planner.id,
+      );
+    },
+  );
+
+  test('preset switching is session-only and changing startup default does not switch now', () async {
+    final store = PersonalityService();
+    final original = await store.loadPersonalities();
+    await store.setActivePersonality('preset-adventure');
+    expect((await store.loadActivePersonality()).id, 'preset-adventure');
+    expect((await store.loadPersonalities()).single.isDefault, isTrue);
+    expect(
+      (await PersonalityService().loadActivePersonality()).id,
+      'cozy-sidekick',
+    );
+    const custom = Personality(
+      id: 'custom',
+      name: 'Custom',
+      systemPrompt: 'Be concise.',
+      isDefault: true,
+    );
+    await store.savePersonalities([
+      Personality(
+        id: original.first.id,
+        name: original.first.name,
+        systemPrompt: original.first.systemPrompt,
+      ),
+      custom,
+    ]);
+    expect((await store.loadActivePersonality()).id, 'preset-adventure');
+    expect((await PersonalityService().loadActivePersonality()).id, 'custom');
+  });
+  test(
+    'deleting the active saved personality falls back to startup default',
+    () async {
+      final store = PersonalityService();
+      final original = await store.loadPersonalities();
+      const custom = Personality(
+        id: 'custom',
+        name: 'Custom',
+        systemPrompt: 'Be concise.',
+      );
+      await store.savePersonalities([...original, custom]);
+      await store.setActivePersonality(custom.id);
+      await store.savePersonalities(original);
+      expect((await store.loadActivePersonality()).id, original.first.id);
+    },
+  );
+
+  test(
     'removes legacy Curious seed and repairs active selection on reload',
     () async {
       const legacy = Personality(
@@ -60,7 +131,7 @@ void main() {
   });
 
   test(
-    'persists custom personalities and active selection across instances',
+    'persists custom personalities but starts new sessions with the default',
     () async {
       final firstSession = PersonalityService();
       final personalities = await firstSession.loadPersonalities();
@@ -84,9 +155,9 @@ void main() {
 
       expect(restoredCustom.name, custom.name);
       expect(restoredCustom.systemPrompt, custom.systemPrompt);
-      expect(restoredCustom.isDefault, isTrue);
-      expect(active.id, custom.id);
-      expect(active.systemPrompt, custom.systemPrompt);
+      expect(restoredCustom.isDefault, isFalse);
+      expect(active.id, 'cozy-sidekick');
+      expect((await firstSession.loadActivePersonality()).id, custom.id);
     },
   );
 

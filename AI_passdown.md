@@ -135,3 +135,13 @@ Validation:
 
 ### Preset layout cleanup
 - Cozy remains the seeded large card; top preset chips are Curious, Adventure, Planner, and Captain Quip. Removed the Cozy chip and legacy unmodified Curious Guide seed, including saved copies on initialization. Customized Curious entries are preserved. Removed active legacy entries fall back to a remaining default.
+
+### Active personality versus startup default
+- Preset ChoiceChips switch immediately for this session without saving a new personality; saved cards offer Use now and indicate Active now. Customize preset retains the editable draft / explicit Save flow.
+- The persisted isDefault flag now controls startup only. Use when app opens sets it; changing it does not switch the current chat. New service instances start with the default, not the previous session selection.
+- Existing default flags are preserved; the old active_id key is used only as a migration fallback, then removed. Deleting an active saved personality falls back to the startup default.
+
+### Direct startup-default selection
+- Added a Startup default dropdown listing presets and saved personalities independently of current selection. Selecting it persists the default without changing the current personality; choosing a preset directly still changes only the current session. Presets saved as defaults remain chips, avoiding duplicate large cards.
+
+- Preset customization saved with its original name now receives a Custom suffix (for example CuriousCustom). User-entered names remain unchanged.

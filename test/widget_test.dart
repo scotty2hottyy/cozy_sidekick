@@ -188,7 +188,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Personality'));
     await tester.pumpAndSettle();
-    expect(find.text('Cozy Sidekick'), findsOneWidget);
+    expect(find.text('Cozy Sidekick'), findsWidgets);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('addPersonalityButton')),
@@ -211,13 +211,15 @@ void main() {
       find.byKey(const Key('personalityPromptField')),
       'Give concise, practical answers.',
     );
-    await tester.tap(find.text('Use as default'));
+    await tester.tap(find.text('Use when app opens'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Focused Helper'), findsOneWidget);
+    expect(find.text('Focused Helper'), findsWidgets);
     expect(
-      (await personalities.loadActivePersonality()).name,
+      (await personalities.loadPersonalities())
+          .singleWhere((p) => p.isDefault)
+          .name,
       'Focused Helper',
     );
   });
