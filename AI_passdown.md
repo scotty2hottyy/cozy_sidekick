@@ -27,6 +27,14 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #9 - OpenAI provider
+
+- `OpenAiProvider` (registered in `main.dart` since #30) now defaults to `gpt-6-luna`, OpenAI's most efficient current model ($0.10 input / $0.50 output per 1M tokens). The model ID lives only in its constructor so #27 can make it configurable.
+- It uses Chat Completions (`https://api.openai.com/v1/chat/completions`) through the shared `OpenAiCompatibleProvider`, like OpenRouter and xAI.
+- Added `test/ai/openai_provider_test.dart` for the URL, Bearer header, model, ordered messages, reply parsing, the OpenAI-only key slot, malformed replies, and 401s.
+- OpenAI has no free tier, so the account needs credit. If Test Connection says "Authentication failed" but the key is right, the OpenAI project may not allow the model (HTTP 403 `model_not_found`). Allow `gpt-6-luna` under Settings → Project → Limits.
+- Validation: `flutter analyze` passes; `flutter test` passes (78 tests). Test Connection and a real chat reply worked in the iOS Simulator with a real key.
+
 ### Issue #16 - Single local chat history
 
 - Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization.
