@@ -12,7 +12,7 @@ abstract interface class PersonalityStore {
   Future<void> setActivePersonality(String id);
 }
 
-/// Persists available personalities and the active personality in preferences.
+/// Persists personalities and their startup default; active selection is session-only.
 class PersonalityService implements PersonalityStore {
   static const String _personalitiesKey = 'personality.items';
   static const String _activeIdKey = 'personality.active_id';
@@ -25,13 +25,6 @@ class PersonalityService implements PersonalityStore {
           'You are a helpful, warm conversational assistant. Be thoughtful, '
           'clear, and supportive.',
       isDefault: true,
-    ),
-    Personality(
-      id: 'curious-guide',
-      name: 'Curious Guide',
-      systemPrompt:
-          'You are a curious guide. Help explore ideas with clear explanations '
-          'and useful questions.',
     ),
   ];
 
@@ -62,13 +55,25 @@ class PersonalityService implements PersonalityStore {
       loaded = List<Personality>.of(defaultPersonalities);
     }
 
+    // Remove the old seeded duplicate, retaining any user-customized version.
+    loaded = loaded
+        .where(
+          (item) =>
+              !(item.id == 'curious-guide' &&
+                  item.name == 'Curious Guide' &&
+                  item.systemPrompt ==
+                      'You are a curious guide. Help explore ideas with clear explanations '
+                          'and useful questions.'),
+        )
+        .toList();
+    if (loaded.isEmpty) loaded = List<Personality>.of(defaultPersonalities);
+
     final savedActiveId = prefs.getString(_activeIdKey);
-    final hasSavedActive = loaded.any((item) => item.id == savedActiveId);
     final flaggedDefault = loaded.where((item) => item.isDefault);
-    final selectedId = hasSavedActive
-        ? savedActiveId!
-        : flaggedDefault.isNotEmpty
+    final selectedId = flaggedDefault.isNotEmpty
         ? flaggedDefault.first.id
+        : loaded.any((item) => item.id == savedActiveId)
+        ? savedActiveId!
         : loaded.first.id;
 
     _personalities = _withDefault(loaded, selectedId);
@@ -85,7 +90,7 @@ class PersonalityService implements PersonalityStore {
   @override
   Future<Personality> loadActivePersonality() async {
     await initialize();
-    return _personalities.firstWhere((item) => item.id == _activeId);
+    return _resolve(_personalities, _activeId!);
   }
 
   @override
@@ -95,11 +100,9 @@ class PersonalityService implements PersonalityStore {
     final requestedDefault = personalities.where((item) => item.isDefault);
     final selectedId = requestedDefault.isNotEmpty
         ? requestedDefault.first.id
-        : personalities.any((item) => item.id == _activeId)
-        ? _activeId!
         : personalities.first.id;
     _personalities = _withDefault(personalities, selectedId);
-    _activeId = selectedId;
+    if (!_contains(_personalities, _activeId!)) _activeId = selectedId;
     final prefs = await SharedPreferences.getInstance();
     await _writePreferences(prefs);
   }
@@ -107,13 +110,8 @@ class PersonalityService implements PersonalityStore {
   @override
   Future<void> setActivePersonality(String id) async {
     await initialize();
-    if (!_personalities.any((item) => item.id == id)) {
-      throw ArgumentError.value(id, 'id', 'No personality has this ID');
-    }
-    _personalities = _withDefault(_personalities, id);
+    _resolve(_personalities, id);
     _activeId = id;
-    final prefs = await SharedPreferences.getInstance();
-    await _writePreferences(prefs);
   }
 
   Future<void> _writePreferences(SharedPreferences prefs) async {
@@ -121,8 +119,18 @@ class PersonalityService implements PersonalityStore {
       _personalitiesKey,
       jsonEncode(_personalities.map((item) => item.toJson()).toList()),
     );
-    await prefs.setString(_activeIdKey, _activeId!);
+    await prefs.remove(_activeIdKey);
   }
+
+  static bool _contains(List<Personality> saved, String id) =>
+      [...saved, ...Personality.presets].any((item) => item.id == id);
+
+  static Personality _resolve(List<Personality> saved, String id) =>
+      [...saved, ...Personality.presets].firstWhere(
+        (item) => item.id == id,
+        orElse: () =>
+            throw ArgumentError.value(id, 'id', 'No personality has this ID'),
+      );
 
   static List<Personality> _withDefault(
     List<Personality> personalities,
@@ -179,7 +187,7 @@ class InMemoryPersonalityStore implements PersonalityStore {
 
   @override
   Future<Personality> loadActivePersonality() async =>
-      _personalities.firstWhere((item) => item.id == _activeId);
+      PersonalityService._resolve(_personalities, _activeId);
 
   @override
   Future<void> savePersonalities(List<Personality> personalities) async {
@@ -187,19 +195,16 @@ class InMemoryPersonalityStore implements PersonalityStore {
     final requestedDefault = personalities.where((item) => item.isDefault);
     final selectedId = requestedDefault.isNotEmpty
         ? requestedDefault.first.id
-        : personalities.any((item) => item.id == _activeId)
-        ? _activeId
         : personalities.first.id;
     _personalities = PersonalityService._withDefault(personalities, selectedId);
-    _activeId = selectedId;
+    if (!PersonalityService._contains(_personalities, _activeId)) {
+      _activeId = selectedId;
+    }
   }
 
   @override
   Future<void> setActivePersonality(String id) async {
-    if (!_personalities.any((item) => item.id == id)) {
-      throw ArgumentError.value(id, 'id', 'No personality has this ID');
-    }
+    PersonalityService._resolve(_personalities, id);
     _activeId = id;
-    _personalities = PersonalityService._withDefault(_personalities, id);
   }
 }

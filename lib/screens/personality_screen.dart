@@ -16,6 +16,7 @@ class PersonalityScreen extends StatefulWidget {
 class _PersonalityScreenState extends State<PersonalityScreen> {
   List<Personality> _personalities = <Personality>[];
   bool _isLoading = true;
+  Personality? _active;
 
   @override
   void initState() {
@@ -25,23 +26,64 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
 
   Future<void> _loadPersonalities() async {
     final personalities = await widget.personalityStore.loadPersonalities();
+    final active = await widget.personalityStore.loadActivePersonality();
     if (!mounted) return;
     setState(() {
+      _active = active;
       _personalities = personalities;
       _isLoading = false;
     });
   }
 
-  Future<void> _editPersonality([Personality? personality]) async {
+  Future<void> _selectPersonality(Personality personality) async {
+    try {
+      await widget.personalityStore.setActivePersonality(personality.id);
+      await _loadPersonalities();
+    } on Exception {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not switch personality.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _setDefault(String id) async {
+    final choices = <String, Personality>{
+      for (final preset in Personality.presets) preset.id: preset,
+      for (final saved in _personalities) saved.id: saved,
+    };
+    final selected = choices[id]!;
+    await _savePersonalities([
+      for (final personality in [
+        ..._personalities,
+        if (!_personalities.any((p) => p.id == id)) selected,
+      ])
+        Personality(
+          id: personality.id,
+          name: personality.name,
+          systemPrompt: personality.systemPrompt,
+          isDefault: personality.id == id,
+        ),
+    ]);
+  }
+
+  Future<void> _editPersonality({
+    Personality? personality,
+    Personality? preset,
+  }) async {
     final result = await showDialog<_PersonalityDraft>(
       context: context,
-      builder: (context) => _PersonalityDialog(personality: personality),
+      builder: (context) =>
+          _PersonalityDialog(personality: personality, preset: preset),
     );
     if (result == null || !mounted) return;
 
     final updated = Personality(
       id: personality?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      name: result.name,
+      name: preset != null && result.name == preset.name
+          ? '${preset.name}Custom'
+          : result.name,
       systemPrompt: result.systemPrompt,
       isDefault: result.isDefault,
     );
@@ -71,8 +113,7 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
   Future<void> _savePersonalities(List<Personality> personalities) async {
     try {
       await widget.personalityStore.savePersonalities(personalities);
-      final saved = await widget.personalityStore.loadPersonalities();
-      if (mounted) setState(() => _personalities = saved);
+      await _loadPersonalities();
     } on Object {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -99,14 +140,86 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Each personality has its own system instructions.',
+                    'Tap a preset or choose Use now. Switching applies to your next reply.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
-                  for (final personality in _personalities)
+                  Text(
+                    'Choose a personality',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final preset in Personality.presets)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              key: ValueKey(preset.id),
+                              label: Text(preset.name),
+                              selected: _active?.id == preset.id,
+                              onSelected: (_) => _selectPersonality(preset),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(
+                      'startup-default-${_personalities.firstWhere((p) => p.isDefault).id}',
+                    ),
+                    initialValue: _personalities
+                        .firstWhere((p) => p.isDefault)
+                        .id,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Startup default',
+                      helperText: 'Used when the app opens. Does not change your current personality.',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final personality in <String, Personality>{
+                        for (final preset in Personality.presets)
+                          preset.id: preset,
+                        for (final saved in _personalities) saved.id: saved,
+                      }.values)
+                        DropdownMenuItem(
+                          value: personality.id,
+                          child: Text(personality.name),
+                        ),
+                    ],
+                    onChanged: (id) {
+                      if (id != null) _setDefault(id);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Active now: ${_active?.name ?? ""}'),
+                  if (_active != null &&
+                      Personality.presets.any((p) => p.id == _active!.id))
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: const Key('customizePresetButton'),
+                        onPressed: () => _editPersonality(preset: _active),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Customize preset'),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  for (final personality in _personalities.where(
+                    (saved) => !Personality.presets.any(
+                      (preset) => preset.id == saved.id,
+                    ),
+                  ))
                     _PersonalityCard(
                       personality: personality,
-                      onEdit: () => _editPersonality(personality),
+                      isActive: _active?.id == personality.id,
+                      onSelect: () => _selectPersonality(personality),
+                      onEdit: () => _editPersonality(personality: personality),
                       onDelete: personality.isDefault
                           ? null
                           : () => _deletePersonality(personality),
@@ -130,9 +243,13 @@ class _PersonalityCard extends StatelessWidget {
     required this.personality,
     required this.onEdit,
     required this.onDelete,
+    required this.isActive,
+    required this.onSelect,
   });
 
   final Personality personality;
+  final bool isActive;
+  final VoidCallback onSelect;
   final VoidCallback onEdit;
   final VoidCallback? onDelete;
 
@@ -155,7 +272,7 @@ class _PersonalityCard extends StatelessWidget {
               if (personality.isDefault)
                 const Chip(
                   avatar: Icon(Icons.check_circle_outline, size: 18),
-                  label: Text('Default'),
+                  label: Text('Startup default'),
                   visualDensity: VisualDensity.compact,
                 ),
               PopupMenuButton<String>(
@@ -178,6 +295,18 @@ class _PersonalityCard extends StatelessWidget {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: ValueKey('use-${personality.id}'),
+              onPressed: isActive ? null : onSelect,
+              icon: Icon(
+                isActive ? Icons.check_circle : Icons.chat_bubble_outline,
+              ),
+              label: Text(isActive ? 'Active now' : 'Use now'),
+            ),
+          ),
         ],
       ),
     ),
@@ -197,7 +326,9 @@ class _PersonalityDraft {
 }
 
 class _PersonalityDialog extends StatefulWidget {
-  const _PersonalityDialog({this.personality});
+  const _PersonalityDialog({this.personality, this.preset});
+
+  final Personality? preset;
 
   final Personality? personality;
 
@@ -214,10 +345,9 @@ class _PersonalityDialogState extends State<_PersonalityDialog> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.personality?.name);
-    _promptController = TextEditingController(
-      text: widget.personality?.systemPrompt,
-    );
+    final initial = widget.personality ?? widget.preset;
+    _nameController = TextEditingController(text: initial?.name);
+    _promptController = TextEditingController(text: initial?.systemPrompt);
     _isDefault = widget.personality?.isDefault ?? false;
   }
 
@@ -266,7 +396,7 @@ class _PersonalityDialogState extends State<_PersonalityDialog> {
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               value: _isDefault,
-              title: const Text('Use as default'),
+              title: const Text('Use when app opens'),
               controlAffinity: ListTileControlAffinity.leading,
               onChanged: widget.personality?.isDefault == true
                   ? null
