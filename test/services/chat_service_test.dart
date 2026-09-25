@@ -2,6 +2,7 @@ import '../fake_chat_history_store.dart';
 
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/models/personality.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
@@ -101,7 +102,39 @@ void main() {
     ]);
     await personalities.setActivePersonality(curious.id);
     await service.getReply(<ChatMessage>[ChatMessage.user('Who are you?')]);
-    expect(custom.lastSystemPrompt, curious.systemPrompt);
+    expect(
+      custom.lastSystemPrompt,
+      '${curious.systemPrompt}\n\n${ChatService.mathInstruction}',
+    );
+  });
+
+  test('asks for LaTeX delimiters only while math is shown', () async {
+    final settings = InMemorySettingsStore();
+    final personalities = InMemoryPersonalityStore();
+    final provider = _FakeProvider('reply');
+    final service = ChatService(
+      historyStore: FakeChatHistoryStore(),
+      settingsStore: settings,
+      personalityStore: personalities,
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: provider,
+      },
+    );
+    final prompt = (await personalities.loadActivePersonality()).systemPrompt;
+    final hi = <ChatMessage>[ChatMessage.user('Hi')];
+
+    await service.getReply(hi);
+    expect(provider.lastSystemPrompt, startsWith(prompt));
+    expect(provider.lastSystemPrompt, endsWith(ChatService.mathInstruction));
+
+    for (final off in const <MessageFormatting>[
+      MessageFormatting(showMath: false),
+      MessageFormatting(formatReplies: false),
+    ]) {
+      await settings.saveMessageFormatting(off);
+      await service.getReply(hi);
+      expect(provider.lastSystemPrompt, prompt, reason: '$off');
+    }
   });
 
   test('rejects an empty conversation', () {

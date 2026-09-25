@@ -159,3 +159,14 @@ Validation:
 - Chat shows "This model isn't available for your account. Check the model or your provider's settings." with a Settings action. Test Connection shows "The credential was accepted, but the model isn't available for this account."
 - A new `AiProviderException` subtype must also be caught in `ProviderConnectionService.testConnection`. The compiler only flags the `friendlyMessage` and `needsSettings` switches.
 - Validation: `flutter analyze` passes; `flutter test` passes (82 tests).
+
+### Issue #37 - Markdown and math in replies
+- Assistant replies render Markdown and LaTeX through `FormattedReply` (`lib/widgets/formatted_reply.dart`), which wraps `gpt_markdown`. The package is pinned to 1.3.0 because that release rewrote its parser, so upgrade on purpose and re-run the tests. User messages stay plain `Text`.
+- Settings → Appearance (`AppearanceScreen`) has Format replies (on), Show math (on) and Dollar-sign math (off). They're saved as `chat.format_replies`, `chat.show_math` and `chat.dollar_math`, and load together as a `MessageFormatting` from `AppSettingsStore.loadMessageFormatting()`.
+- `ChatScreen._loadChatSettings()` runs at startup and whenever the user comes back from Settings. #34's Show reasoning setting should load there too.
+- Dollar-sign math uses our own `convertDollarMath`, not gpt_markdown's `useDollarSignsForLatex`. That option also rewrites `$` inside code, so `echo "$HOME $PATH"` showed as `echo "\(HOME \)PATH"`. Ours skips code and follows Pandoc's rules, so "$5 and $10" stays text.
+- Math is drawn by our own `latexBuilder`. Invalid LaTeX shows its source in the normal text color (gpt_markdown's default turns it red in debug builds). `align`, `gather` and `equation` are mapped to environments flutter_math_fork can draw. Long inline equations wrap after `+` and `=`. `flutter_math_fork` is a regular dependency because `lib/` imports it.
+- Long-pressing a reply offers Copy, which copies the original Markdown and LaTeX.
+- While math is shown, `ChatService` adds `ChatService.mathInstruction` to the system prompt so models use `\( \)` and `\[ \]`.
+- Links are styled but don't open yet. That needs `url_launcher`.
+- Validation: `flutter analyze` passes; `flutter test` passes (111 tests). Checked in the iOS Simulator (iPhone 17 Pro) with sample replies loaded into the chat history. Landscape is covered by widget tests only.

@@ -7,12 +7,14 @@ import 'fake_chat_history_store.dart';
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/app.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:cozy_sidekick/services/speech_service.dart';
+import 'package:cozy_sidekick/widgets/formatted_reply.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -147,6 +149,41 @@ void main() {
     expect(find.text('AI Settings'), findsOneWidget);
     expect(find.text('API Credentials'), findsOneWidget);
     expect(find.text('Personality'), findsOneWidget);
+  });
+
+  testWidgets('formatting settings apply at startup and after Settings', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore(
+      messageFormatting: const MessageFormatting(formatReplies: false),
+    );
+    final history = FakeChatHistoryStore()
+      ..messages = [
+        ChatMessage.user('Hi'),
+        ChatMessage.assistant('**Bold** hi'),
+      ];
+    await tester.pumpWidget(
+      _app(historyStore: history, settingsStore: settings),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('**Bold** hi'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settingsButton')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Appearance'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Appearance'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('formatRepliesSwitch')));
+    await tester.pumpAndSettle();
+    expect(settings.messageFormatting.formatReplies, isTrue);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('**Bold** hi'), findsNothing);
+    expect(find.byType(FormattedReply), findsOneWidget);
   });
 
   testWidgets('speech partial results fill input and listening can stop', (
@@ -313,8 +350,9 @@ CozySidekickApp _app({
   PersonalityStore? personalityStore,
   ChatHistoryStore? historyStore,
   AiProvider? provider,
+  InMemorySettingsStore? settingsStore,
 }) {
-  final settings = InMemorySettingsStore();
+  final settings = settingsStore ?? InMemorySettingsStore();
   final personalities = personalityStore ?? InMemoryPersonalityStore();
   final keys = InMemoryApiKeyStore();
   final providers = <AiProviderType, AiProvider>{
