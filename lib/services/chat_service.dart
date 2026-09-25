@@ -17,6 +17,12 @@ class ChatService {
   final PersonalityStore personalityStore;
   final Map<AiProviderType, AiProvider> _providers;
 
+  /// Added to the system prompt while math is shown, so models use the
+  /// delimiters that render safely. Small free models don't always follow it.
+  static const String mathInstruction =
+      r'Write math in LaTeX, using \( … \) for inline math and \[ … \] for '
+      r"display equations. Don't use $ for math.";
+
   Future<List<ChatMessage>> loadHistory() => historyStore.load();
   Future<void> clearHistory() => historyStore.clear();
 
@@ -34,8 +40,11 @@ class ChatService {
       );
     }
     final personality = await personalityStore.loadActivePersonality();
+    final formatting = await settingsStore.loadMessageFormatting();
     final reply = await provider.sendChat(
-      systemPrompt: personality.systemPrompt,
+      systemPrompt: formatting.rendersMath
+          ? '${personality.systemPrompt}\n\n$mathInstruction'
+          : personality.systemPrompt,
       messages: snapshot.length > 20
           ? snapshot.sublist(snapshot.length - 20)
           : snapshot,

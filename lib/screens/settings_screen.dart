@@ -6,6 +6,7 @@ import '../services/personality_service.dart';
 import '../services/settings_service.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
+import 'appearance_screen.dart';
 import 'chat_history_screen.dart';
 import 'personality_screen.dart';
 
@@ -75,7 +76,8 @@ class SettingsScreen extends StatelessWidget {
               context,
               Icons.palette_outlined,
               'Appearance',
-              'Theme and display options',
+              'Message formatting and math',
+              destination: AppearanceScreen(settingsStore: settingsStore),
             ),
             _row(
               context,

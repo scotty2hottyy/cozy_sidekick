@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../ai/ai_provider.dart';
 import '../ai/error_messages.dart';
 import '../models/chat_message.dart';
+import '../models/message_formatting.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
 import '../services/personality_service.dart';
@@ -45,11 +46,36 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = true;
   bool _isClearing = false;
   bool get _busy => _isLoading || _isSending || _isClearing;
+  MessageFormatting _formatting = const MessageFormatting();
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadChatSettings());
     unawaited(_loadHistory());
+  }
+
+  /// Loads the settings that change how the chat looks. Runs at startup and
+  /// again when the user comes back from Settings, so changes apply right
+  /// away.
+  Future<void> _loadChatSettings() async {
+    final formatting = await widget.settingsStore.loadMessageFormatting();
+    if (mounted) setState(() => _formatting = formatting);
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          onClearChat: _clearChat,
+          settingsStore: widget.settingsStore,
+          personalityStore: widget.personalityStore,
+          keyStore: widget.keyStore,
+          connectionTester: widget.connectionTester,
+        ),
+      ),
+    );
+    if (mounted) await _loadChatSettings();
   }
 
   Future<void> _loadHistory() async {
@@ -220,21 +246,7 @@ class _ChatScreenState extends State<ChatScreen> {
           children: <Widget>[
             SafeArea(
               bottom: false,
-              child: ChatHeader(
-                onSettingsTap: _busy
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => SettingsScreen(
-                            onClearChat: _clearChat,
-                            settingsStore: widget.settingsStore,
-                            personalityStore: widget.personalityStore,
-                            keyStore: widget.keyStore,
-                            connectionTester: widget.connectionTester,
-                          ),
-                        ),
-                      ),
-              ),
+              child: ChatHeader(onSettingsTap: _busy ? null : _openSettings),
             ),
             const Divider(height: 1),
             Expanded(
@@ -259,6 +271,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (_, index) => MessageBubble(
                         message: _messages[_messages.length - 1 - index],
+                        formatting: _formatting,
                       ),
                     ),
             ),

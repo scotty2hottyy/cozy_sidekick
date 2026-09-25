@@ -1,7 +1,9 @@
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/screens/ai_settings_screen.dart';
 import 'package:cozy_sidekick/screens/api_credentials_screen.dart';
+import 'package:cozy_sidekick/screens/appearance_screen.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
@@ -62,6 +64,49 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('test-customServer')));
     await tester.pumpAndSettle();
     expect(find.text('Connection successful'), findsOneWidget);
+  });
+
+  testWidgets('appearance switches are saved and depend on each other', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore();
+    await tester.pumpWidget(
+      MaterialApp(home: AppearanceScreen(settingsStore: settings)),
+    );
+    await tester.pumpAndSettle();
+    SwitchListTile tile(String key) =>
+        tester.widget<SwitchListTile>(find.byKey(Key(key)));
+    Future<void> toggle(String key) async {
+      await tester.tap(find.byKey(Key(key)));
+      await tester.pumpAndSettle();
+    }
+
+    expect(tile('formatRepliesSwitch').value, isTrue);
+    expect(tile('showMathSwitch').value, isTrue);
+    expect(tile('dollarMathSwitch').value, isFalse);
+
+    await toggle('dollarMathSwitch');
+    expect(
+      settings.messageFormatting,
+      const MessageFormatting(dollarMath: true),
+    );
+
+    await toggle('showMathSwitch');
+    expect(settings.messageFormatting.showMath, isFalse);
+    expect(tile('dollarMathSwitch').onChanged, isNull);
+
+    await toggle('formatRepliesSwitch');
+    expect(settings.messageFormatting.formatReplies, isFalse);
+    expect(tile('showMathSwitch').onChanged, isNull);
+    expect(tile('dollarMathSwitch').onChanged, isNull);
+
+    // Turning formatting back on keeps the other choices.
+    await toggle('formatRepliesSwitch');
+    expect(
+      settings.messageFormatting,
+      const MessageFormatting(showMath: false, dollarMath: true),
+    );
+    expect(tile('showMathSwitch').onChanged, isNotNull);
   });
 }
 
