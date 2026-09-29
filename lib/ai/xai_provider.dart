@@ -6,6 +6,6 @@ class XaiProvider extends OpenAiCompatibleProvider {
     : super(
         type: AiProviderType.xai,
         baseUrl: 'https://api.x.ai/v1',
-        model: 'grok-3-mini',
+        model: 'grok-4.3',
       );
 }

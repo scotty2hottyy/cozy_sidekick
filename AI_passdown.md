@@ -27,6 +27,13 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #10 - Grok xAI provider
+
+- `XaiProvider` reuses `OpenAiCompatibleProvider` with `https://api.x.ai/v1`, and `main.dart` registers it as `AiProviderType.xai` for chat and the existing Test Connection path.
+- The selected model is `grok-4.3`, a current fast chat model listed in the [official xAI model documentation](https://docs.x.ai/developers/models/grok-4.3) at $1.25 per million input tokens and $2.50 per million output tokens.
+- `test/ai/xai_provider_test.dart` uses mock HTTP to cover the endpoint, Bearer key, model ID, ordered system and conversation messages, first-choice reply parsing, missing-key behavior, and the existing connection-test service.
+- A manual Test Connection and chat reply with a real xAI key are still required.
+
 ### Issue #9 - OpenAI provider
 
 - `OpenAiProvider` (registered in `main.dart` since #30) now defaults to `gpt-6-luna`, OpenAI's most efficient current model ($0.10 input / $0.50 output per 1M tokens). The model ID lives only in its constructor so #27 can make it configurable.
