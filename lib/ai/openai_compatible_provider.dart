@@ -60,6 +60,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       body: <String, Object?>{
         ...buildRequestBody(systemPrompt, messages, model: model),
         'stream': true,
+        'stream_options': <String, bool>{'include_usage': true},
       },
     );
 
@@ -111,9 +112,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     );
 
     if (finished.text.isEmpty) {
-      throw const BadResponseException(
-        'The stream ended without an answer',
-      );
+      throw const BadResponseException('The stream ended without an answer');
     }
 
     if (finished != shown) yield finished;
@@ -159,10 +158,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       return extraHeaders;
     }
 
-    return <String, String>{
-      'Authorization': 'Bearer $apiKey',
-      ...extraHeaders,
-    };
+    return <String, String>{'Authorization': 'Bearer $apiKey', ...extraHeaders};
   }
 
   /// Sends only each message's text. Reasoning is never sent back, because
@@ -171,29 +167,21 @@ class OpenAiCompatibleProvider implements AiProvider {
     String systemPrompt,
     List<ChatMessage> messages, {
     String? model,
-  }) =>
-      <String, Object?>{
-        'model': model ?? this.model,
-        'messages': <Map<String, String>>[
-          <String, String>{
-            'role': 'system',
-            'content': systemPrompt,
-          },
-          for (final message in messages)
-            <String, String>{
-              'role': message.role.name,
-              'content': message.text,
-            },
-        ],
-      };
+  }) => <String, Object?>{
+    'model': model ?? this.model,
+    'messages': <Map<String, String>>[
+      <String, String>{'role': 'system', 'content': systemPrompt},
+      for (final message in messages)
+        <String, String>{'role': message.role.name, 'content': message.text},
+    ],
+  };
 
   AiReply parseReply(Map<String, dynamic> json) {
     final choices = json['choices'];
 
     if (choices is List && choices.isNotEmpty) {
       final first = choices.first;
-      final message =
-          first is Map<String, dynamic> ? first['message'] : null;
+      final message = first is Map<String, dynamic> ? first['message'] : null;
 
       if (message is Map<String, dynamic>) {
         final content = message['content'];
@@ -220,9 +208,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       }
     }
 
-    throw const BadResponseException(
-      'Missing choices[0].message.content',
-    );
+    throw const BadResponseException('Missing choices[0].message.content');
   }
 
   /// Splits [content] into the answer and the model's reasoning.
@@ -236,10 +222,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     final end = content.lastIndexOf(_thinkEnd);
 
     if (reasoning != null || end == -1) {
-      return AiReply(
-        text: content.trim(),
-        reasoning: reasoning,
-      );
+      return AiReply(text: content.trim(), reasoning: reasoning);
     }
 
     var thinking = content.substring(0, end).trimLeft();
@@ -257,10 +240,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// Like [_withReasoning], for a reply that's still arriving. Until a
   /// `<think>` at the start of [content] is closed, everything after it is
   /// reasoning so far.
-  static AiReply _withReasoningSoFar(
-    String content,
-    String? reasoning,
-  ) {
+  static AiReply _withReasoningSoFar(String content, String? reasoning) {
     final start = content.trimLeft();
 
     if (reasoning == null &&
@@ -268,9 +248,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         !content.contains(_thinkEnd)) {
       return AiReply(
         text: '',
-        reasoning: _nonBlank(
-          start.substring(_thinkStart.length),
-        ),
+        reasoning: _nonBlank(start.substring(_thinkStart.length)),
       );
     }
 
@@ -285,19 +263,15 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// Throws [ProviderUnavailableException] for a piece that reports an error.
   /// OpenRouter sends one, with `"finish_reason": "error"`, when a reply fails
   /// after it has started.
-  static Map<String, dynamic>? _delta(
-    Map<String, dynamic> event,
-  ) {
+  static Map<String, dynamic>? _delta(Map<String, dynamic> event) {
     final choices = event['choices'];
-    final choice =
-        choices is List && choices.isNotEmpty ? choices.first : null;
+    final choice = choices is List && choices.isNotEmpty ? choices.first : null;
     final error = event['error'];
 
     if (error != null ||
         (choice is Map<String, dynamic> &&
             choice['finish_reason'] == 'error')) {
-      final message =
-          error is Map<String, dynamic> ? error['message'] : null;
+      final message = error is Map<String, dynamic> ? error['message'] : null;
 
       throw ProviderUnavailableException(
         'Error during the stream'
@@ -305,8 +279,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       );
     }
 
-    final delta =
-        choice is Map<String, dynamic> ? choice['delta'] : null;
+    final delta = choice is Map<String, dynamic> ? choice['delta'] : null;
 
     return delta is Map<String, dynamic> ? delta : null;
   }
@@ -321,14 +294,11 @@ class OpenAiCompatibleProvider implements AiProvider {
       for (final detail in details) {
         if (detail is! Map<String, dynamic>) continue;
 
-        _append(
-          text,
-          switch (detail['type']) {
-            'reasoning.text' => detail['text'],
-            'reasoning.summary' => detail['summary'],
-            _ => null,
-          },
-        );
+        _append(text, switch (detail['type']) {
+          'reasoning.text' => detail['text'],
+          'reasoning.summary' => detail['summary'],
+          _ => null,
+        });
       }
     }
 
@@ -342,9 +312,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// [value] without surrounding whitespace, or null when it isn't a string
   /// with some text in it.
   static String? _nonBlank(Object? value) =>
-      value is String && value.trim().isNotEmpty
-          ? value.trim()
-          : null;
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
 
   /// Whether [entry], one model in a `/models` list, is one this app can chat
   /// with.

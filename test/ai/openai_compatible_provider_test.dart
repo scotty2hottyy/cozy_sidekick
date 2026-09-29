@@ -492,12 +492,13 @@ void main() {
         '$_done',
       );
 
+      expect(await ask(provider).toList(), const <AiReply>[
+        AiReply(text: 'Hello'),
+        AiReply(text: 'Hello', totalTokens: 42),
+      ]);
       expect(
-        await ask(provider).toList(),
-        const <AiReply>[
-          AiReply(text: 'Hello'),
-          AiReply(text: 'Hello', totalTokens: 42),
-        ],
+        (jsonDecode(sentBody) as Map<String, dynamic>)['stream_options'],
+        <String, bool>{'include_usage': true},
       );
     });
 
