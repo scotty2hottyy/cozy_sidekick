@@ -121,7 +121,9 @@ class ModelNotAvailableException extends AiProviderException {
 }
 
 class RateLimitException extends AiProviderException {
-  const RateLimitException() : super('HTTP 429');
+  const RateLimitException({this.retryAt}) : super('HTTP 429');
+
+  final DateTime? retryAt;
 }
 
 class ProviderUnavailableException extends AiProviderException {

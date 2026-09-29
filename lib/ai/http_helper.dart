@@ -177,7 +177,7 @@ void _checkStatus(http.Response response) {
   }
 
   if (code == 429) {
-    throw const RateLimitException();
+    throw RateLimitException(retryAt: _retryAt(response.headers));
   }
 
   if (code >= 500) {
@@ -187,6 +187,30 @@ void _checkStatus(http.Response response) {
   if (code < 200 || code >= 300) {
     throw BadResponseException('HTTP $code');
   }
+}
+
+DateTime? _retryAt(Map<String, String> headers) {
+  final retryAfter = headers['retry-after'];
+  if (retryAfter != null) {
+    final seconds = int.tryParse(retryAfter.trim());
+    if (seconds != null) {
+      return DateTime.now().toUtc().add(Duration(seconds: seconds));
+    }
+    try {
+      return HttpDate.parse(retryAfter).toUtc();
+    } on FormatException {
+      // Try the provider-specific reset header below.
+    }
+  }
+
+  final resetSeconds = int.tryParse(headers['x-ratelimit-reset'] ?? '');
+  if (resetSeconds != null && resetSeconds > 0) {
+    return DateTime.fromMillisecondsSinceEpoch(
+      resetSeconds * 1000,
+      isUtc: true,
+    );
+  }
+  return null;
 }
 
 /// The error for a response that says the model can't be used, or null for

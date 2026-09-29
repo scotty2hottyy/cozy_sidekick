@@ -75,6 +75,38 @@ void main() {
     });
   }
 
+  test('429 Retry-After sets retryAt', () async {
+    final startedAt = DateTime.now().toUtc();
+    final request = postJson(
+      MockClient(
+        (_) async => http.Response(
+          '{}',
+          429,
+          headers: <String, String>{'retry-after': '60'},
+        ),
+      ),
+      Uri.parse('https://example.com'),
+      headers: <String, String>{},
+      body: <String, Object?>{},
+    );
+
+    await expectLater(
+      request,
+      throwsA(
+        isA<RateLimitException>().having(
+          (error) => error.retryAt,
+          'retryAt',
+          allOf(
+            isNotNull,
+            predicate<DateTime>(
+              (retryAt) => retryAt.difference(startedAt).inSeconds >= 59,
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
   // What OpenAI sends when a project's model allowlist blocks the model.
   const modelNotFound =
       '{"error":{"message":"Project `proj_abc` does not have access to model '
