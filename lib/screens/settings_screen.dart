@@ -18,8 +18,10 @@ class SettingsScreen extends StatelessWidget {
     required this.keyStore,
     required this.connectionTester,
     required this.onClearChat,
+    this.onDeleteAllChats,
   });
   final Future<void> Function() onClearChat;
+  final Future<void> Function()? onDeleteAllChats;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
@@ -84,7 +86,10 @@ class SettingsScreen extends StatelessWidget {
               Icons.history_rounded,
               'Chat History',
               'Manage saved chat history',
-              destination: ChatHistoryScreen(onClearChat: onClearChat),
+              destination: ChatHistoryScreen(
+                onClearChat: onClearChat,
+                onDeleteAllChats: onDeleteAllChats,
+              ),
             ),
             _row(context, Icons.info_outline_rounded, 'About', 'Cozy Sidekick'),
           ],
