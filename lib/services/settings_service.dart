@@ -6,6 +6,13 @@ import '../models/message_formatting.dart';
 abstract interface class AppSettingsStore {
   Future<AiProviderType> loadSelectedProvider();
   Future<void> saveSelectedProvider(AiProviderType provider);
+
+  /// The model chosen for [provider], or null while it uses its default.
+  Future<String?> loadModel(AiProviderType provider);
+
+  /// Saves [model] for [provider]. Null or blank goes back to the default.
+  Future<void> saveModel(AiProviderType provider, String? model);
+
   Future<String> loadCustomServerBaseUrl();
   Future<void> saveCustomServerBaseUrl(String url);
   Future<MessageFormatting> loadMessageFormatting();
@@ -24,6 +31,8 @@ class SettingsService implements AppSettingsStore {
   static const String _showMathKey = 'chat.show_math';
   static const String _dollarMathKey = 'chat.dollar_math';
   static const String _showReasoningKey = 'chat.show_reasoning';
+  static String _modelKey(AiProviderType provider) =>
+      'ai.model.${provider.name}';
 
   @override
   Future<AiProviderType> loadSelectedProvider() async {
@@ -36,6 +45,23 @@ class SettingsService implements AppSettingsStore {
   Future<void> saveSelectedProvider(AiProviderType provider) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_providerKey, provider.name);
+  }
+
+  @override
+  Future<String?> loadModel(AiProviderType provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_modelKey(provider));
+  }
+
+  @override
+  Future<void> saveModel(AiProviderType provider, String? model) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmed = model?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      await prefs.remove(_modelKey(provider));
+    } else {
+      await prefs.setString(_modelKey(provider), trimmed);
+    }
   }
 
   @override
@@ -96,12 +122,16 @@ class SettingsService implements AppSettingsStore {
 class InMemorySettingsStore implements AppSettingsStore {
   InMemorySettingsStore({
     this.selectedProvider = AiProviderType.openRouter,
+    Map<AiProviderType, String>? models,
     this.customServerBaseUrl = '',
     this.messageFormatting = const MessageFormatting(),
     this.showReasoning = false,
-  });
+  }) : models = <AiProviderType, String>{...?models};
 
   AiProviderType selectedProvider;
+
+  /// The chosen model for each provider that doesn't use its default.
+  final Map<AiProviderType, String> models;
   String customServerBaseUrl;
   MessageFormatting messageFormatting;
   bool showReasoning;
@@ -111,6 +141,19 @@ class InMemorySettingsStore implements AppSettingsStore {
   @override
   Future<void> saveSelectedProvider(AiProviderType provider) async =>
       selectedProvider = provider;
+
+  @override
+  Future<String?> loadModel(AiProviderType provider) async => models[provider];
+  @override
+  Future<void> saveModel(AiProviderType provider, String? model) async {
+    final trimmed = model?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      models.remove(provider);
+    } else {
+      models[provider] = trimmed;
+    }
+  }
+
   @override
   Future<String> loadCustomServerBaseUrl() async => customServerBaseUrl;
   @override

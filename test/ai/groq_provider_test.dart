@@ -5,6 +5,7 @@ import 'package:cozy_sidekick/ai/groq_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
+import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -130,11 +131,47 @@ void main() {
     );
     final connectionTester = ProviderConnectionService(
       providers: <AiProviderType, AiProvider>{AiProviderType.groq: provider},
+      settingsStore: InMemorySettingsStore(),
     );
 
     final result = await connectionTester.testConnection(AiProviderType.groq);
 
     expect(result.status, ConnectionTestStatus.success);
     expect(requests, 1);
+  });
+
+  test('asks the chosen model and lists models with the key', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.groq, 'test-key');
+    final requests = <http.Request>[];
+    final provider = GroqProvider(
+      keyStore: keys,
+      client: MockClient((request) async {
+        requests.add(request);
+        return request.method == 'GET'
+            ? http.Response(
+                '{"object":"list","data":['
+                '{"id":"openai/gpt-oss-120b","active":true},'
+                '{"id":"llama-3.3-70b-versatile","active":false},'
+                '{"id":"whisper-large-v3","active":true}]}',
+                200,
+              )
+            : http.Response('{"choices":[{"message":{"content":"Hi"}}]}', 200);
+      }),
+    );
+    await provider.sendChat(
+      systemPrompt: 'system',
+      messages: <ChatMessage>[ChatMessage.user('Hi')],
+      model: 'openai/gpt-oss-120b',
+    );
+    final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
+    expect(body['model'], 'openai/gpt-oss-120b');
+
+    expect(await provider.listModels(), <String>['openai/gpt-oss-120b']);
+    expect(
+      requests.last.url.toString(),
+      'https://api.groq.com/openai/v1/models',
+    );
+    expect(requests.last.headers['authorization'], 'Bearer test-key');
   });
 }

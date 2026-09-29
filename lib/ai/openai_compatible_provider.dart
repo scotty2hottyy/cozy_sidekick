@@ -12,26 +12,33 @@ class OpenAiCompatibleProvider implements AiProvider {
     required this.model,
     required this.keyStore,
     this.extraHeaders = const <String, String>{},
+    this.publicModelList = false,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
   final AiProviderType type;
   final String baseUrl;
+
+  /// The default model, used when a request doesn't name one.
   final String model;
   final ApiKeyStore keyStore;
   final Map<String, String> extraHeaders;
+
+  /// Whether [listModels] works without a key.
+  final bool publicModelList;
   final http.Client _client;
 
   @override
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async {
     final json = await postJson(
       _client,
-      _chatUrl,
+      _url('chat/completions'),
       headers: await _headers(),
-      body: buildRequestBody(systemPrompt, messages),
+      body: buildRequestBody(systemPrompt, messages, model: model),
     );
     return parseReply(json);
   }
@@ -40,13 +47,14 @@ class OpenAiCompatibleProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async* {
     final events = postEventStream(
       _client,
-      _chatUrl,
+      _url('chat/completions'),
       headers: await _headers(),
       body: <String, Object?>{
-        ...buildRequestBody(systemPrompt, messages),
+        ...buildRequestBody(systemPrompt, messages, model: model),
         'stream': true,
       },
     );
@@ -86,15 +94,38 @@ class OpenAiCompatibleProvider implements AiProvider {
     if (finished != shown) yield finished;
   }
 
-  Uri get _chatUrl =>
-      Uri.parse('${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/chat/completions');
+  /// The IDs of the chat models at `{baseUrl}/models`, sorted. Models that
+  /// can't chat, like speech, image and embedding models, are left out.
+  ///
+  /// Throws [MissingApiKeyException] when the list needs a key and none is
+  /// saved.
+  Future<List<String>> listModels() async {
+    final json = await getJson(
+      _client,
+      _url('models'),
+      headers: await _headers(keyRequired: !publicModelList),
+    );
+    final data = json['data'];
+    final ids = <String>{
+      if (data is List)
+        for (final entry in data)
+          if (entry is Map<String, dynamic> && _isChatModel(entry))
+            entry['id'] as String,
+    };
+    if (ids.isEmpty) throw const BadResponseException('No chat models listed');
+    return ids.toList()..sort();
+  }
+
+  Uri _url(String path) =>
+      Uri.parse('${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/$path');
 
   /// The request headers, with the saved key. Throws [MissingApiKeyException]
-  /// when there isn't one.
-  Future<Map<String, String>> _headers() async {
+  /// when there isn't one, unless [keyRequired] is false.
+  Future<Map<String, String>> _headers({bool keyRequired = true}) async {
     final apiKey = await keyStore.read(type);
     if (apiKey == null || apiKey.trim().isEmpty) {
-      throw const MissingApiKeyException();
+      if (keyRequired) throw const MissingApiKeyException();
+      return extraHeaders;
     }
     return <String, String>{'Authorization': 'Bearer $apiKey', ...extraHeaders};
   }
@@ -103,9 +134,10 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// it's often longer than the answer and would crowd out the conversation.
   Map<String, Object?> buildRequestBody(
     String systemPrompt,
-    List<ChatMessage> messages,
-  ) => <String, Object?>{
-    'model': model,
+    List<ChatMessage> messages, {
+    String? model,
+  }) => <String, Object?>{
+    'model': model ?? this.model,
     'messages': <Map<String, String>>[
       <String, String>{'role': 'system', 'content': systemPrompt},
       for (final message in messages)
@@ -221,4 +253,51 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// with some text in it.
   static String? _nonBlank(Object? value) =>
       value is String && value.trim().isNotEmpty ? value.trim() : null;
+
+  /// Whether [entry], one model in a `/models` list, is one this app can chat
+  /// with.
+  ///
+  /// OpenRouter says what each model writes. OpenAI and Groq don't, so their
+  /// speech, image, embedding and safety models are left out by the words in
+  /// their IDs. A model this misses fails with the usual error when it's
+  /// asked.
+  static bool _isChatModel(Map<String, dynamic> entry) {
+    final id = entry['id'];
+    if (id is! String || id.trim().isEmpty) return false;
+    // Groq marks the models it has turned off.
+    if (entry['active'] == false) return false;
+    // OpenRouter's `:batch` entries only work through its Batch API.
+    if (id.endsWith(':batch')) return false;
+    final architecture = entry['architecture'];
+    if (architecture is Map<String, dynamic>) {
+      final outputs = architecture['output_modalities'];
+      return outputs is! List || outputs.contains('text');
+    }
+    return !id
+        .toLowerCase()
+        .split(RegExp(r'[-/._:]'))
+        .any(_nonChatWords.contains);
+  }
+
+  /// Words in the IDs of OpenAI and Groq models that can't chat, or only
+  /// through other APIs.
+  static const Set<String> _nonChatWords = <String>{
+    'audio',
+    'babbage',
+    'codex',
+    'computer',
+    'dall',
+    'davinci',
+    'embedding',
+    'guard',
+    'image',
+    'live',
+    'moderation',
+    'orpheus',
+    'realtime',
+    'sora',
+    'transcribe',
+    'tts',
+    'whisper',
+  };
 }

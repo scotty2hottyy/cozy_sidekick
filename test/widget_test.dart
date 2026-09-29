@@ -10,6 +10,7 @@ import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
+import 'package:cozy_sidekick/services/model_list_service.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
@@ -276,6 +277,37 @@ void main() {
     expect(find.text('AI Settings'), findsOneWidget);
     expect(find.text('API Credentials'), findsOneWidget);
     expect(find.text('Personality'), findsOneWidget);
+  });
+
+  testWidgets('the model picked in AI Settings answers the next message', (
+    tester,
+  ) async {
+    final provider = _FakeProvider();
+    await tester.pumpWidget(_app(provider: provider));
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hi');
+    expect(provider.lastModel, isNull);
+
+    await tester.tap(find.byKey(const Key('settingsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DropdownMenu<String>),
+        matching: find.byType(TextField),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('openai/gpt-6-luna').last);
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await _sendMessage(tester, 'Hello');
+    expect(provider.lastModel, 'openai/gpt-6-luna');
   });
 
   testWidgets('formatting settings apply at startup and after Settings', (
@@ -568,6 +600,32 @@ void main() {
     expect(find.text('Provider: Hello'), findsOneWidget);
   });
 
+  testWidgets('model errors open AI Settings, then ask again on return', (
+    tester,
+  ) async {
+    final provider = _FlakyProvider(<Object>[
+      const ModelNotAvailableException('HTTP 404 model_not_found'),
+    ]);
+    await tester.pumpWidget(_app(provider: provider));
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+    expect(
+      find.text(
+        "This model isn't available for your account. Check the model or "
+        "your provider's settings.",
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('AI Settings'), findsOneWidget);
+    expect(find.byType(DropdownMenu<String>), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(provider.calls, 2);
+    expect(find.text('Provider: Hello'), findsOneWidget);
+  });
+
   testWidgets('unexpected errors never show the raw error', (tester) async {
     await tester.pumpWidget(
       _app(provider: _FlakyProvider(<Object>[StateError('internal detail')])),
@@ -801,19 +859,26 @@ CozySidekickApp _app({
     settingsStore: settings,
     personalityStore: personalities,
     keyStore: keys,
-    connectionTester: ProviderConnectionService(providers: providers),
+    connectionTester: ProviderConnectionService(
+      providers: providers,
+      settingsStore: settings,
+    ),
+    modelLister: ModelListService(providers: providers),
   );
 }
 
 class _FakeProvider implements AiProvider {
   _FakeProvider({this.reasoning});
   final String? reasoning;
+  String? lastModel;
 
   @override
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async {
+    lastModel = model;
     await Future<void>.delayed(const Duration(seconds: 1));
     return AiReply(
       text: 'Provider: ${messages.last.text}',
@@ -825,8 +890,13 @@ class _FakeProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async* {
-    yield await sendChat(systemPrompt: systemPrompt, messages: messages);
+    yield await sendChat(
+      systemPrompt: systemPrompt,
+      messages: messages,
+      model: model,
+    );
   }
 }
 
@@ -840,6 +910,7 @@ class _FlakyProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async {
     calls++;
     if (errors.isNotEmpty) throw errors.removeAt(0);
@@ -850,6 +921,7 @@ class _FlakyProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async* {
     yield await sendChat(systemPrompt: systemPrompt, messages: messages);
   }
@@ -879,12 +951,14 @@ class _StreamingProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 
   @override
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) {
     calls++;
     _reply = StreamController<AiReply>();

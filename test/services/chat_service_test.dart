@@ -163,6 +163,37 @@ void main() {
     );
   });
 
+  test('asks each provider for the model saved for it', () async {
+    final settings = InMemorySettingsStore(
+      models: <AiProviderType, String>{AiProviderType.openAi: 'gpt-6-sol'},
+    );
+    final openRouter = _FakeProvider('router reply');
+    final openAi = _FakeProvider('OpenAI reply');
+    final service = ChatService(
+      conversationStore: FakeChatHistoryStore(),
+      settingsStore: settings,
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: openRouter,
+        AiProviderType.openAi: openAi,
+      },
+    );
+    final hi = <ChatMessage>[ChatMessage.user('Hi')];
+
+    // Nothing saved for OpenRouter, so it uses its default.
+    await service.getReply(hi);
+    expect(openRouter.lastModel, isNull);
+
+    await settings.saveSelectedProvider(AiProviderType.openAi);
+    await service.getReply(hi);
+    expect(openAi.lastModel, 'gpt-6-sol');
+
+    // A change applies to the next reply.
+    await settings.saveModel(AiProviderType.openAi, null);
+    await service.getReply(hi);
+    expect(openAi.lastModel, isNull);
+  });
+
   test('asks for LaTeX delimiters only while math is shown', () async {
     final settings = InMemorySettingsStore();
     final personalities = InMemoryPersonalityStore();
@@ -323,21 +354,25 @@ class _FakeProvider implements AiProvider {
   final Object? error;
   List<ChatMessage> lastMessages = <ChatMessage>[];
   String? lastSystemPrompt;
+  String? lastModel;
 
   @override
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 
   @override
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async* {
     beforeReply?.call();
     lastMessages = messages;
     lastSystemPrompt = systemPrompt;
+    lastModel = model;
     yield* Stream<AiReply>.fromIterable(pieces);
     if (error != null) throw error!;
   }
@@ -351,6 +386,7 @@ class _ControlledProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) {
     context = messages;
     started.complete();
@@ -361,5 +397,6 @@ class _ControlledProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 }

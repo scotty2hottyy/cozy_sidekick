@@ -81,4 +81,38 @@ void main() {
       throwsA(isA<InvalidApiKeyException>()),
     );
   });
+
+  test('asks the chosen model and lists models without a key', () async {
+    final keys = InMemoryApiKeyStore();
+    final requests = <http.Request>[];
+    final provider = OpenRouterProvider(
+      keyStore: keys,
+      client: MockClient((request) async {
+        requests.add(request);
+        return request.method == 'GET'
+            ? http.Response(
+                '{"data":[{"id":"x-ai/grok-4.7","architecture":'
+                '{"output_modalities":["text"]}}]}',
+                200,
+              )
+            : http.Response('{"choices":[{"message":{"content":"Hi"}}]}', 200);
+      }),
+    );
+    // Anyone can read OpenRouter's list.
+    expect(await provider.listModels(), <String>['x-ai/grok-4.7']);
+    expect(
+      requests.single.url.toString(),
+      'https://openrouter.ai/api/v1/models',
+    );
+    expect(requests.single.headers.containsKey('authorization'), isFalse);
+
+    await keys.save(AiProviderType.openRouter, 'test-key');
+    await provider.sendChat(
+      systemPrompt: 'system',
+      messages: <ChatMessage>[ChatMessage.user('Hi')],
+      model: 'x-ai/grok-4.7',
+    );
+    final body = jsonDecode(requests.last.body) as Map<String, dynamic>;
+    expect(body['model'], 'x-ai/grok-4.7');
+  });
 }

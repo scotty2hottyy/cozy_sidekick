@@ -6,7 +6,9 @@ class OpenRouterProvider extends OpenAiCompatibleProvider {
     : super(
         type: AiProviderType.openRouter,
         baseUrl: 'https://openrouter.ai/api/v1',
-        model: 'openrouter/free',
+        model: AiProviderType.openRouter.defaultModel!,
         extraHeaders: const <String, String>{'X-Title': 'Cozy Sidekick'},
+        // Anyone can read OpenRouter's model list.
+        publicModelList: true,
       );
 }

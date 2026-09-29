@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/chat_screen.dart';
 import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
+import 'services/model_list_service.dart';
 import 'services/personality_service.dart';
 import 'services/provider_connection_service.dart';
 import 'services/settings_service.dart';
@@ -17,6 +18,7 @@ class CozySidekickApp extends StatelessWidget {
     required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
+    required this.modelLister,
   });
   final ChatService chatService;
   final SpeechService speechService;
@@ -24,6 +26,7 @@ class CozySidekickApp extends StatelessWidget {
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
+  final ModelLister modelLister;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -42,6 +45,7 @@ class CozySidekickApp extends StatelessWidget {
       personalityStore: personalityStore,
       keyStore: keyStore,
       connectionTester: connectionTester,
+      modelLister: modelLister,
     ),
   );
 }

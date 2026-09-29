@@ -1,6 +1,7 @@
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
+import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -20,11 +21,28 @@ void main() {
         providers: <AiProviderType, AiProvider>{
           AiProviderType.openRouter: _ResultProvider(entry.key),
         },
+        settingsStore: InMemorySettingsStore(),
       );
       final result = await service.testConnection(AiProviderType.openRouter);
       expect(result.status, entry.value);
       expect(result.message, isNotEmpty);
     }
+  });
+
+  test('tests the model saved for the provider', () async {
+    final provider = _ResultProvider(null);
+    final settings = InMemorySettingsStore();
+    final service = ProviderConnectionService(
+      providers: <AiProviderType, AiProvider>{AiProviderType.openAi: provider},
+      settingsStore: settings,
+    );
+
+    await service.testConnection(AiProviderType.openAi);
+    expect(provider.lastModel, isNull);
+
+    await settings.saveModel(AiProviderType.openAi, 'gpt-6-sol');
+    await service.testConnection(AiProviderType.openAi);
+    expect(provider.lastModel, 'gpt-6-sol');
   });
 
   test('every status has its own message', () {
@@ -38,11 +56,14 @@ void main() {
 class _ResultProvider implements AiProvider {
   _ResultProvider(this.error);
   final Object? error;
+  String? lastModel;
   @override
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) async {
+    lastModel = model;
     if (error != null) throw error!;
     return const AiReply(text: 'OK');
   }
@@ -51,6 +72,7 @@ class _ResultProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    String? model,
   }) => Stream<AiReply>.fromFuture(
     sendChat(systemPrompt: systemPrompt, messages: messages),
   );
