@@ -10,6 +10,7 @@ import '../models/message_formatting.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
 import '../services/generation_control.dart';
+import '../services/model_list_service.dart';
 import '../services/personality_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
@@ -18,6 +19,7 @@ import '../widgets/chat_header.dart';
 import '../widgets/anchored_reply_sliver.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_composer.dart';
+import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
 import 'settings_screen.dart';
 
@@ -30,6 +32,7 @@ class ChatScreen extends StatefulWidget {
     required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
+    required this.modelLister,
   });
   final ChatService chatService;
   final SpeechService speechService;
@@ -37,6 +40,7 @@ class ChatScreen extends StatefulWidget {
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
+  final ModelLister modelLister;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -130,6 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
           personalityStore: widget.personalityStore,
           keyStore: widget.keyStore,
           connectionTester: widget.connectionTester,
+          modelLister: widget.modelLister,
         ),
       ),
     );
@@ -459,7 +464,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     if (error is AiProviderException) {
       debugPrint('Chat failed: $error'); // never includes keys
-      _showError(friendlyMessage(error), openSettings: needsSettings(error));
+      _showError(
+        friendlyMessage(error),
+        fixIn: needsSettings(error) ? _settingsFor(error) : null,
+      );
     } else {
       debugPrint('Unexpected chat error: $error');
       _showError('Something went wrong. Please try again.');
@@ -475,7 +483,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return reply.text.isNotEmpty || hasReasoning ? reply : null;
   }
 
-  void _showError(String message, {bool openSettings = false}) {
+  /// With [fixIn], the action opens that screen instead of trying again.
+  void _showError(String message, {Widget? fixIn}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -483,26 +492,36 @@ class _ChatScreenState extends State<ChatScreen> {
         // A SnackBar with an action stays up until tapped, covering the
         // composer. Only keep it up for screen readers, which need the time.
         persist: MediaQuery.accessibleNavigationOf(context),
-        action: openSettings
-            ? SnackBarAction(label: 'Settings', onPressed: _openCredentials)
+        action: fixIn != null
+            ? SnackBarAction(
+                label: 'Settings',
+                onPressed: () => _openToFix(fixIn),
+              )
             : SnackBarAction(label: 'Retry', onPressed: _retry),
       ),
     );
   }
 
-  /// Opens the screen where keys and the custom server URL are set. The user
-  /// has likely fixed the problem when they come back, so it asks again.
-  Future<void> _openCredentials() async {
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ApiCredentialsScreen(
+  /// The screen where the user fixes [error]. The model is chosen in AI
+  /// Settings, and keys and the custom server URL are set in API Credentials.
+  Widget _settingsFor(AiProviderException error) =>
+      error is ModelNotAvailableException
+      ? AiSettingsScreen(
+          settingsStore: widget.settingsStore,
+          modelLister: widget.modelLister,
+        )
+      : ApiCredentialsScreen(
           settingsStore: widget.settingsStore,
           keyStore: widget.keyStore,
           connectionTester: widget.connectionTester,
-        ),
-      ),
-    );
+        );
+
+  /// Opens [screen]. The user has likely fixed the problem when they come
+  /// back, so it asks again.
+  Future<void> _openToFix(Widget screen) async {
+    if (!mounted) return;
+    await Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => screen));
     if (mounted) _retry();
   }
 

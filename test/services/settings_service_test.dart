@@ -23,6 +23,40 @@ void main() {
     );
   });
 
+  test('a model is saved per provider and survives a restart', () async {
+    final first = SettingsService();
+    for (final provider in AiProviderType.values) {
+      expect(await first.loadModel(provider), isNull, reason: '$provider');
+    }
+    await first.saveModel(AiProviderType.openAi, '  gpt-6-sol  ');
+    await first.saveModel(AiProviderType.groq, 'openai/gpt-oss-120b');
+
+    final afterRestart = SettingsService();
+    expect(await afterRestart.loadModel(AiProviderType.openAi), 'gpt-6-sol');
+    expect(
+      await afterRestart.loadModel(AiProviderType.groq),
+      'openai/gpt-oss-120b',
+    );
+    expect(await afterRestart.loadModel(AiProviderType.openRouter), isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('ai.model.openAi'), 'gpt-6-sol');
+  });
+
+  test('saving no model goes back to the default', () async {
+    final settings = SettingsService();
+    for (final model in <String?>[null, '', '   ']) {
+      await settings.saveModel(AiProviderType.openAi, 'gpt-6-sol');
+      await settings.saveModel(AiProviderType.openAi, model);
+      expect(
+        await settings.loadModel(AiProviderType.openAi),
+        isNull,
+        reason: '"$model"',
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('ai.model.openAi'), isFalse);
+    }
+  });
+
   test('message formatting has defaults and survives a restart', () async {
     final first = SettingsService();
     expect(await first.loadMessageFormatting(), const MessageFormatting());

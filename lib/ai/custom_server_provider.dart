@@ -17,11 +17,13 @@ class CustomServerProvider implements AiProvider {
   final AppSettingsStore settingsStore;
   final http.Client _client;
 
+  /// Ignores [model], because the server picks its own.
   @override
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
     Future<void>? abortTrigger,
+    String? model,
   }) async {
     final baseUrl = await settingsStore.loadCustomServerBaseUrl();
     if (!SettingsService.isValidBaseUrl(baseUrl)) {
@@ -72,6 +74,7 @@ class CustomServerProvider implements AiProvider {
     required String systemPrompt,
     required List<ChatMessage> messages,
     Future<void>? abortTrigger,
+    String? model,
   }) async* {
     yield await sendChat(
       systemPrompt: systemPrompt,

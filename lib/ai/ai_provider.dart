@@ -5,24 +5,55 @@ enum AiProviderType {
     'OpenRouter',
     secretLabel: 'API key',
     keyUrl: 'https://openrouter.ai/keys',
+    defaultModel: 'openrouter/free',
+    suggestedModels: <String>[
+      'openrouter/free',
+      'openai/gpt-6-luna',
+      'deepseek/deepseek-v4-flash',
+      'google/gemini-3.5-flash-lite',
+      'anthropic/claude-sonnet-5.5',
+    ],
   ),
   openAi(
     'OpenAI',
     secretLabel: 'API key',
     keyUrl: 'https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-6-luna',
+    suggestedModels: <String>['gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra'],
   ),
-  groq('Groq', secretLabel: 'API key', keyUrl: 'https://console.groq.com/keys'),
+  groq(
+    'Groq',
+    secretLabel: 'API key',
+    keyUrl: 'https://console.groq.com/keys',
+    defaultModel: 'openai/gpt-oss-20b',
+    suggestedModels: <String>[
+      'openai/gpt-oss-20b',
+      'openai/gpt-oss-120b',
+      'qwen/qwen3.8-27b',
+    ],
+  ),
   customServer('Custom Server', secretLabel: 'Access token');
 
   const AiProviderType(
     this.displayName, {
     required this.secretLabel,
     this.keyUrl,
+    this.defaultModel,
+    this.suggestedModels = const <String>[],
   });
 
   final String displayName;
   final String secretLabel;
   final String? keyUrl;
+
+  /// The model used until the user picks another. Null when the provider
+  /// picks its own, like the custom server.
+  final String? defaultModel;
+
+  /// The models AI Settings offers first, starting with [defaultModel]. The
+  /// IDs are copied from each provider's models page, because names change
+  /// often. Keep the default cheap.
+  final List<String> suggestedModels;
 }
 
 /// What a provider sends back for one chat request.
@@ -47,11 +78,14 @@ class AiReply {
   String toString() => 'AiReply("$text", reasoning: $reasoning)';
 }
 
+/// [model] is the model to ask, or null for the provider's default. Providers
+/// that pick their own model, like the custom server, ignore it.
 abstract interface class AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
     Future<void>? abortTrigger,
+    String? model,
   });
 
   /// The reply as it's written. Each event is the whole reply so far, and
@@ -60,6 +94,7 @@ abstract interface class AiProvider {
     required String systemPrompt,
     required List<ChatMessage> messages,
     Future<void>? abortTrigger,
+    String? model,
   });
 }
 

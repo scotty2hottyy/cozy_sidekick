@@ -144,6 +144,113 @@ void main() {
     expect(_post(401, modelNotFound), throwsA(isA<InvalidApiKeyException>()));
   });
 
+  test('OpenRouter and Groq model errors map to ModelNotAvailable', () async {
+    for (final (code, body) in <(int, String)>[
+      // OpenRouter, for an ID it doesn't know.
+      (
+        400,
+        '{"error":{"message":"openai/gpt-9 is not a valid model ID",'
+            '"code":400},"user_id":"user_123"}',
+      ),
+      // OpenRouter, for a model without an endpoint the account can use.
+      (
+        404,
+        '{"error":{"message":"No endpoints found matching your data policy",'
+            '"code":404}}',
+      ),
+      (
+        404,
+        '{"error":{"code":404,"message":"The requested resource does not '
+            'exist","metadata":{"error_type":"not_found"}}}',
+      ),
+      // Groq, for a model it has retired.
+      (
+        400,
+        '{"error":{"message":"The model `llama3-70b-8192` has been '
+            'decommissioned and is no longer supported.",'
+            '"type":"invalid_request_error","code":"model_decommissioned"}}',
+      ),
+    ]) {
+      await expectLater(
+        _post(code, body),
+        throwsA(isA<ModelNotAvailableException>()),
+        reason: body,
+      );
+    }
+    await expectLater(
+      _post(
+        400,
+        '{"error":{"message":"x is not a valid model ID","code":400}}',
+      ),
+      throwsA(
+        isA<ModelNotAvailableException>().having(
+          (e) => e.debugMessage,
+          'debugMessage',
+          'HTTP 400: x is not a valid model ID',
+        ),
+      ),
+    );
+  });
+
+  test('other 400 bodies are still bad responses', () async {
+    for (final body in <String>[
+      '',
+      '{}',
+      '{"error":{"message":"Invalid messages","code":400}}',
+      '{"error":{"message":"Not found","code":404}}',
+      '{"error":{"message":"Bad","type":"invalid_request_error","code":null}}',
+    ]) {
+      await expectLater(
+        _post(400, body),
+        throwsA(
+          isA<BadResponseException>().having(
+            (e) => e.debugMessage,
+            'debugMessage',
+            'HTTP 400',
+          ),
+        ),
+        reason: body,
+      );
+    }
+  });
+
+  test('getJson gets a JSON object, with the same errors', () async {
+    late http.Request sent;
+    final url = Uri.parse('https://example.com/v1/models');
+    final json = await getJson(
+      MockClient((request) async {
+        sent = request;
+        return http.Response('{"data":[]}', 200);
+      }),
+      url,
+      headers: <String, String>{'Authorization': 'Bearer key'},
+    );
+    expect(json, <String, Object?>{'data': <Object?>[]});
+    expect(sent.method, 'GET');
+    expect(sent.url, url);
+    expect(sent.headers['authorization'], 'Bearer key');
+
+    for (final (client, matcher) in <(http.Client, Matcher)>[
+      (
+        MockClient((_) async => http.Response('{}', 401)),
+        isA<InvalidApiKeyException>(),
+      ),
+      (
+        MockClient((_) async => http.Response('nope', 200)),
+        isA<BadResponseException>(),
+      ),
+      (
+        MockClient((_) async => throw http.ClientException('offline')),
+        isA<NetworkException>(),
+      ),
+    ]) {
+      await expectLater(
+        getJson(client, url, headers: <String, String>{}),
+        throwsA(matcher),
+      );
+    }
+  });
+
   test('rejects non-JSON and maps client failures', () async {
     expect(
       postJson(

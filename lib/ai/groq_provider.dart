@@ -6,6 +6,6 @@ class GroqProvider extends OpenAiCompatibleProvider {
     : super(
         type: AiProviderType.groq,
         baseUrl: 'https://api.groq.com/openai/v1',
-        model: 'openai/gpt-oss-20b',
+        model: AiProviderType.groq.defaultModel!,
       );
 }
