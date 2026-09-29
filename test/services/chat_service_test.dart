@@ -6,10 +6,13 @@ import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/models/personality.dart';
+import 'package:cozy_sidekick/models/quota_route.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cozy_sidekick/services/usage_tracker.dart';
 
 void main() {
   test('reply stays with originating chat when active chat changes during streaming', () async {
@@ -191,6 +194,37 @@ void main() {
     // A change applies to the next reply.
     await settings.saveModel(AiProviderType.openAi, null);
     await service.getReply(hi);
+    expect(openAi.lastModel, isNull);
+  });
+
+  test('auto-routing uses the first configured route when enabled', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final settings = InMemorySettingsStore(
+      selectedProvider: AiProviderType.openAi,
+    );
+    await settings.saveAutoRouteEnabled(true);
+    await settings.saveQuotaRoutes(<QuotaRoute>[
+      QuotaRoute.defaults.first,
+      QuotaRoute.defaults[1],
+    ]);
+    final openRouter = _FakeProvider('routed reply');
+    final openAi = _FakeProvider('selected provider reply');
+    final service = ChatService(
+      conversationStore: FakeChatHistoryStore(),
+      settingsStore: settings,
+      personalityStore: InMemoryPersonalityStore(),
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openRouter: openRouter,
+        AiProviderType.openAi: openAi,
+        AiProviderType.openCodeZen: _FakeProvider('Zen reply'),
+      },
+      usageTracker: UsageTracker(now: () => DateTime.utc(2026, 9, 29)),
+    );
+
+    final reply = await service.getReply(<ChatMessage>[ChatMessage.user('Hi')]);
+
+    expect(reply.text, 'routed reply');
+    expect(openRouter.lastModel, 'openrouter/free');
     expect(openAi.lastModel, isNull);
   });
 

@@ -139,6 +139,13 @@ class RateLimitException extends AiProviderException {
   final DateTime? retryAt;
 }
 
+class QuotaExhaustedException extends AiProviderException {
+  const QuotaExhaustedException({this.resetAt})
+    : super('No free AI route is currently available');
+
+  final DateTime? resetAt;
+}
+
 class ProviderUnavailableException extends AiProviderException {
   const ProviderUnavailableException([super.debugMessage = 'HTTP 5xx']);
 }
