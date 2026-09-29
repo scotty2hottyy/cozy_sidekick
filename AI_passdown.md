@@ -14,7 +14,7 @@ Cozy Sidekick is a generic configurable AI chat app.
 Planned AI providers:
 - OpenRouter
 - OpenAI
-- xAI / Grok
+- GroqCloud
 - User-configurable custom HTTP(S) chat server
 
 The personality/system instructions live in the app rather than on the server.
@@ -27,17 +27,17 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
-### Issue #10 - Grok xAI provider
+### Issue #10 - GroqCloud provider
 
-- `XaiProvider` reuses `OpenAiCompatibleProvider` with `https://api.x.ai/v1`, and `main.dart` registers it as `AiProviderType.xai` for chat and the existing Test Connection path.
-- The selected model is `grok-4.3`, a current fast chat model listed in the [official xAI model documentation](https://docs.x.ai/developers/models/grok-4.3) at $1.25 per million input tokens and $2.50 per million output tokens.
-- `test/ai/xai_provider_test.dart` uses mock HTTP to cover the endpoint, Bearer key, model ID, ordered system and conversation messages, first-choice reply parsing, missing-key behavior, and the existing connection-test service.
-- A manual Test Connection and chat reply with a real xAI key are still required.
+- `GroqProvider` reuses `OpenAiCompatibleProvider` with `https://api.groq.com/openai/v1` (`/chat/completions`) and the text model `openai/gpt-oss-20b`. This matches the proven Teddy Chat Groq setup for text chat without copying its separate provider architecture.
+- `main.dart` registers it as `AiProviderType.groq`. AI Settings shows Groq, and API Credentials uses the existing secure `api_key.groq` slot and Test Connection path.
+- `test/ai/groq_provider_test.dart` uses mock HTTP to cover the endpoint, Bearer key, model, ordered system and conversation messages, first-choice reply parsing, streaming replies, missing-key behavior, and the existing connection-test service. Settings and key-store tests cover Groq selection and credential handling.
+- A manual Test Connection and chat reply with an existing Groq API key are still required.
 
 ### Issue #9 - OpenAI provider
 
 - `OpenAiProvider` (registered in `main.dart` since #30) now defaults to `gpt-6-luna`, OpenAI's most efficient current model ($0.10 input / $0.50 output per 1M tokens). The model ID lives only in its constructor so #27 can make it configurable.
-- It uses Chat Completions (`https://api.openai.com/v1/chat/completions`) through the shared `OpenAiCompatibleProvider`, like OpenRouter and xAI.
+- It uses Chat Completions (`https://api.openai.com/v1/chat/completions`) through the shared `OpenAiCompatibleProvider`, like OpenRouter and Groq.
 - Added `test/ai/openai_provider_test.dart` for the URL, Bearer header, model, ordered messages, reply parsing, the OpenAI-only key slot, malformed replies, and 401s.
 - OpenAI has no free tier, so the account needs credit. If Test Connection says "Authentication failed" but the key is right, the OpenAI project may not allow the model (HTTP 403 `model_not_found`). Allow `gpt-6-luna` under Settings → Project → Limits.
 - Validation: `flutter analyze` passes; `flutter test` passes (78 tests). Test Connection and a real chat reply worked in the iOS Simulator with a real key.
@@ -56,7 +56,7 @@ The personality/system instructions live in the app rather than on the server.
 
 Implemented:
 - A shared `AiProvider` interface, provider types, typed provider errors, and a reusable JSON HTTP helper.
-- A reusable OpenAI-compatible provider plus registered OpenRouter, OpenAI, and xAI/Grok implementations. OpenRouter defaults to `openrouter/free`.
+- A reusable OpenAI-compatible provider plus registered OpenRouter, OpenAI, and Groq implementations. OpenRouter defaults to `openrouter/free`.
 - A custom server provider that reads a user-configured HTTP(S) base URL and posts ordered system/user/assistant messages to `{baseUrl}/chat`.
 - `ChatService` resolves the selected provider for every message, so `ChatScreen` remains provider-neutral and provider changes take effect without restarting.
 - `flutter_secure_storage` credential persistence with a distinct slot per provider, trimming, empty-value rejection, replacement/deletion, and an in-memory test implementation. Stored secrets are never displayed or logged.
@@ -180,7 +180,7 @@ Validation:
 
 ### Issue #34 - Show model reasoning
 - Providers return an `AiReply` (`text` plus an optional `reasoning`) instead of a `String`. New providers and test fakes must return one too.
-- `OpenAiCompatibleProvider.parseReply` takes reasoning from the first of these that isn't blank: `message.reasoning` (OpenRouter, Ollama, vLLM), `message.reasoning_content` (xAI, llama.cpp, DeepSeek-style), or the content before its last `</think>`, which is then removed from the answer. A reply that's only reasoning is still a `BadResponseException`. `CustomServerProvider` reads an optional `reasoning` string next to `message`. OpenAI's Chat Completions never returns reasoning.
+- `OpenAiCompatibleProvider.parseReply` takes reasoning from the first of these that isn't blank: `message.reasoning` (OpenRouter, Ollama, vLLM), `message.reasoning_content` (llama.cpp, DeepSeek-style), or the content before its last `</think>`, which is then removed from the answer. A reply that's only reasoning is still a `BadResponseException`. `CustomServerProvider` reads an optional `reasoning` string next to `message`. OpenAI's Chat Completions never returns reasoning.
 - `ChatMessage.reasoning` is saved in `chat_history.json` only when there is some, so older history still loads. It's saved even while Show reasoning is off. Requests never include it, because both providers send only `message.text`.
 - Settings → AI Settings has Show reasoning (`chat.show_reasoning`, off by default). `ChatScreen._loadChatSettings()` loads it with the formatting switches, so it applies when the user comes back from Settings.
 - `MessageBubble` shows a collapsed Reasoning row (`Key('reasoningToggle')`) above replies that have reasoning. `ChatScreen` remembers which replies are open, so they stay open while new messages arrive. The chat list is reversed, so opening long reasoning scrolls just enough to keep its row on screen, and closing puts the row back where it was.

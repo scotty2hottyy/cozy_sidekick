@@ -59,7 +59,7 @@ void main() {
       );
     });
 
-    test('is read from reasoning_content (xAI, llama.cpp)', () async {
+    test('is read from reasoning_content (llama.cpp, DeepSeek)', () async {
       expect(
         await replyWith(<String, Object?>{
           'content': 'No.',

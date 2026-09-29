@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'ai/ai_provider.dart';
 import 'ai/custom_server_provider.dart';
+import 'ai/groq_provider.dart';
 import 'ai/openai_provider.dart';
 import 'ai/openrouter_provider.dart';
-import 'ai/xai_provider.dart';
 import 'app.dart';
 import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
@@ -23,7 +23,7 @@ Future<void> main() async {
   final providers = <AiProviderType, AiProvider>{
     AiProviderType.openRouter: OpenRouterProvider(keyStore: keyStore),
     AiProviderType.openAi: OpenAiProvider(keyStore: keyStore),
-    AiProviderType.xai: XaiProvider(keyStore: keyStore),
+    AiProviderType.groq: GroqProvider(keyStore: keyStore),
     AiProviderType.customServer: CustomServerProvider(
       keyStore: keyStore,
       settingsStore: settingsStore,

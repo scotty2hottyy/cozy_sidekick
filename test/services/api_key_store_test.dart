@@ -12,23 +12,26 @@ void main() {
       final store = SecureApiKeyStore();
       await store.save(AiProviderType.openRouter, '  router-key\n');
       await store.save(AiProviderType.openAi, 'openai-key');
+      await store.save(AiProviderType.groq, '  groq-key\n');
       expect(await store.read(AiProviderType.openRouter), 'router-key');
       expect(await store.read(AiProviderType.openAi), 'openai-key');
+      expect(await store.read(AiProviderType.groq), 'groq-key');
       await store.save(AiProviderType.openRouter, 'replacement');
       expect(await store.read(AiProviderType.openRouter), 'replacement');
       await store.delete(AiProviderType.openRouter);
       expect(await store.read(AiProviderType.openRouter), isNull);
       expect(await store.read(AiProviderType.openAi), 'openai-key');
+      expect(await store.read(AiProviderType.groq), 'groq-key');
     },
   );
 
   test('secure and in-memory stores reject empty credentials', () async {
     expect(
-      () => SecureApiKeyStore().save(AiProviderType.xai, '  '),
+      () => SecureApiKeyStore().save(AiProviderType.groq, '  '),
       throwsArgumentError,
     );
     expect(
-      () => InMemoryApiKeyStore().save(AiProviderType.xai, '\n'),
+      () => InMemoryApiKeyStore().save(AiProviderType.groq, '\n'),
       throwsArgumentError,
     );
   });

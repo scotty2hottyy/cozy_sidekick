@@ -11,7 +11,7 @@ enum AiProviderType {
     secretLabel: 'API key',
     keyUrl: 'https://platform.openai.com/api-keys',
   ),
-  xai('Grok (xAI)', secretLabel: 'API key', keyUrl: 'https://console.x.ai'),
+  groq('Groq', secretLabel: 'API key', keyUrl: 'https://console.groq.com/keys'),
   customServer('Custom Server', secretLabel: 'Access token');
 
   const AiProviderType(
