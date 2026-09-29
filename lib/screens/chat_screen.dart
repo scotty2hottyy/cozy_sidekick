@@ -540,6 +540,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         setState(() {});
       },
+      onFinalResult: (_) {},
       onStateChanged: _handleSpeechState,
     );
   }

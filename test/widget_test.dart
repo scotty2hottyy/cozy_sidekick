@@ -1201,9 +1201,16 @@ class FakeSpeechService implements SpeechService {
   FakeSpeechService({this.startState = SpeechServiceState.listening});
   final SpeechServiceState startState;
   SpeechServiceState _state = SpeechServiceState.idle;
+  List<SpeechLanguage> languages = const <SpeechLanguage>[];
   ValueChanged<String>? _onText;
+  ValueChanged<String>? _onFinalResult;
   ValueChanged<SpeechServiceState>? _onStateChanged;
   int stopCalls = 0;
+  String? lastLocaleId;
+  bool lastSendWhenDone = false;
+
+  @override
+  Future<List<SpeechLanguage>> locales() async => languages;
 
   @override
   SpeechServiceState get state => _state;
@@ -1211,16 +1218,23 @@ class FakeSpeechService implements SpeechService {
   @override
   Future<SpeechServiceState> startListening({
     required ValueChanged<String> onText,
+    required ValueChanged<String> onFinalResult,
     required ValueChanged<SpeechServiceState> onStateChanged,
+    String? localeId,
+    bool sendWhenDone = false,
   }) async {
     _onText = onText;
+    _onFinalResult = onFinalResult;
     _onStateChanged = onStateChanged;
+    lastLocaleId = localeId;
+    lastSendWhenDone = sendWhenDone;
     _state = startState;
     onStateChanged(_state);
     return _state;
   }
 
   void emitText(String text) => _onText?.call(text);
+  void emitFinal(String text) => _onFinalResult?.call(text);
 
   @override
   Future<void> stopListening() async {
