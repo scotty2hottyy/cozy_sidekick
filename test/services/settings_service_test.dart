@@ -1,5 +1,6 @@
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
+import 'package:cozy_sidekick/models/speech_settings.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,6 +81,29 @@ void main() {
     expect(await SettingsService().loadShowReasoning(), isTrue);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool('chat.show_reasoning'), isTrue);
+  });
+
+  test('speech settings have defaults and survive a restart', () async {
+    final first = SettingsService();
+    expect(await first.loadSpeechSettings(), const SpeechSettings());
+    const changed = SpeechSettings(
+      languageId: 'fr-FR',
+      sendWhenDone: true,
+      readAloud: ReadAloudMode.afterSpoken,
+      voiceName: 'French Voice',
+      voiceLocale: 'fr-FR',
+      rate: 0.65,
+    );
+    await first.saveSpeechSettings(changed);
+
+    expect(await SettingsService().loadSpeechSettings(), changed);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('speech.language'), 'fr-FR');
+    expect(prefs.getBool('speech.send_when_done'), isTrue);
+    expect(prefs.getString('speech.read_aloud'), 'afterSpoken');
+    expect(prefs.getString('speech.voice_name'), 'French Voice');
+    expect(prefs.getString('speech.voice_locale'), 'fr-FR');
+    expect(prefs.getDouble('speech.rate'), 0.65);
   });
 
   test('accepts http/https and rejects invalid custom URLs', () {

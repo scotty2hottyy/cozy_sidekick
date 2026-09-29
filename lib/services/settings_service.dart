@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ai/ai_provider.dart';
 import '../models/message_formatting.dart';
+import '../models/speech_settings.dart';
 
 abstract interface class AppSettingsStore {
   Future<AiProviderType> loadSelectedProvider();
@@ -22,6 +23,8 @@ abstract interface class AppSettingsStore {
   /// default, because reasoning can be long.
   Future<bool> loadShowReasoning();
   Future<void> saveShowReasoning(bool value);
+  Future<SpeechSettings> loadSpeechSettings();
+  Future<void> saveSpeechSettings(SpeechSettings settings);
 }
 
 class SettingsService implements AppSettingsStore {
@@ -31,6 +34,12 @@ class SettingsService implements AppSettingsStore {
   static const String _showMathKey = 'chat.show_math';
   static const String _dollarMathKey = 'chat.dollar_math';
   static const String _showReasoningKey = 'chat.show_reasoning';
+  static const String _speechLanguageKey = 'speech.language';
+  static const String _speechSendWhenDoneKey = 'speech.send_when_done';
+  static const String _speechReadAloudKey = 'speech.read_aloud';
+  static const String _speechVoiceNameKey = 'speech.voice_name';
+  static const String _speechVoiceLocaleKey = 'speech.voice_locale';
+  static const String _speechRateKey = 'speech.rate';
   static String _modelKey(AiProviderType provider) =>
       'ai.model.${provider.name}';
 
@@ -111,6 +120,42 @@ class SettingsService implements AppSettingsStore {
     await prefs.setBool(_showReasoningKey, value);
   }
 
+  @override
+  Future<SpeechSettings> loadSpeechSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = ReadAloudMode.values.asNameMap()[
+      prefs.getString(_speechReadAloudKey)
+    ];
+    return SpeechSettings(
+      languageId: prefs.getString(_speechLanguageKey),
+      sendWhenDone: prefs.getBool(_speechSendWhenDoneKey) ?? false,
+      readAloud: mode ?? ReadAloudMode.off,
+      voiceName: prefs.getString(_speechVoiceNameKey),
+      voiceLocale: prefs.getString(_speechVoiceLocaleKey),
+      rate: prefs.getDouble(_speechRateKey) ?? 0.5,
+    );
+  }
+
+  @override
+  Future<void> saveSpeechSettings(SpeechSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (settings.languageId == null) {
+      await prefs.remove(_speechLanguageKey);
+    } else {
+      await prefs.setString(_speechLanguageKey, settings.languageId!);
+    }
+    await prefs.setBool(_speechSendWhenDoneKey, settings.sendWhenDone);
+    await prefs.setString(_speechReadAloudKey, settings.readAloud.name);
+    if (settings.voiceName == null || settings.voiceLocale == null) {
+      await prefs.remove(_speechVoiceNameKey);
+      await prefs.remove(_speechVoiceLocaleKey);
+    } else {
+      await prefs.setString(_speechVoiceNameKey, settings.voiceName!);
+      await prefs.setString(_speechVoiceLocaleKey, settings.voiceLocale!);
+    }
+    await prefs.setDouble(_speechRateKey, settings.rate);
+  }
+
   static bool isValidBaseUrl(String value) {
     final uri = Uri.tryParse(value.trim());
     return uri != null &&
@@ -126,6 +171,7 @@ class InMemorySettingsStore implements AppSettingsStore {
     this.customServerBaseUrl = '',
     this.messageFormatting = const MessageFormatting(),
     this.showReasoning = false,
+    this.speechSettings = const SpeechSettings(),
   }) : models = <AiProviderType, String>{...?models};
 
   AiProviderType selectedProvider;
@@ -135,6 +181,7 @@ class InMemorySettingsStore implements AppSettingsStore {
   String customServerBaseUrl;
   MessageFormatting messageFormatting;
   bool showReasoning;
+  SpeechSettings speechSettings;
 
   @override
   Future<AiProviderType> loadSelectedProvider() async => selectedProvider;
@@ -175,4 +222,10 @@ class InMemorySettingsStore implements AppSettingsStore {
   Future<bool> loadShowReasoning() async => showReasoning;
   @override
   Future<void> saveShowReasoning(bool value) async => showReasoning = value;
+
+  @override
+  Future<SpeechSettings> loadSpeechSettings() async => speechSettings;
+  @override
+  Future<void> saveSpeechSettings(SpeechSettings settings) async =>
+      speechSettings = settings;
 }
