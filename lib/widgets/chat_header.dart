@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 class ChatHeader extends StatelessWidget {
-  const ChatHeader({super.key, required this.onSettingsTap});
+  const ChatHeader({super.key, required this.onSettingsTap, this.onChatsTap});
   final VoidCallback? onSettingsTap;
+  final VoidCallback? onChatsTap;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -10,6 +11,15 @@ class ChatHeader extends StatelessWidget {
     child: Stack(
       alignment: Alignment.center,
       children: <Widget>[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: IconButton(
+            key: const Key('chatsButton'),
+            tooltip: 'Conversations',
+            onPressed: onChatsTap,
+            icon: const Icon(Icons.menu_rounded),
+          ),
+        ),
         Align(
           alignment: Alignment.centerRight,
           child: IconButton.filledTonal(

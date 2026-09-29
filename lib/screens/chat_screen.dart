@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../ai/ai_provider.dart';
 import '../ai/error_messages.dart';
 import '../models/chat_message.dart';
+import '../models/conversation.dart';
 import '../models/message_formatting.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
@@ -45,7 +46,11 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isSending = false;
   bool _isLoading = true;
   bool _isClearing = false;
-  bool get _busy => _isLoading || _isSending || _isClearing;
+  bool _historyLoadFailed = false;
+  int _speechGeneration = 0;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool get _busy =>
+      _isLoading || _isSending || _isClearing || _historyLoadFailed;
   MessageFormatting _formatting = const MessageFormatting();
   bool _showReasoning = false;
 
@@ -95,6 +100,7 @@ class _ChatScreenState extends State<ChatScreen> {
       MaterialPageRoute<void>(
         builder: (_) => SettingsScreen(
           onClearChat: _clearChat,
+          onDeleteAllChats: _deleteAllChats,
           settingsStore: widget.settingsStore,
           personalityStore: widget.personalityStore,
           keyStore: widget.keyStore,
@@ -108,12 +114,184 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadHistory() async {
     try {
       final messages = await widget.chatService.loadHistory();
-      if (mounted) setState(() => _messages.addAll(messages));
-    } on Exception {
-      _showStorageError('Could not load saved chat.');
+      if (mounted) {
+        setState(() {
+          _historyLoadFailed = false;
+          _messages
+            ..clear()
+            ..addAll(messages);
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _historyLoadFailed = true);
+      _showStorageError(
+        'Could not load saved chats. Your saved file has not been changed.',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _changeConversation(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _isLoading = true);
+    _speechGeneration++;
+    try {
+      await widget.speechService.stopListening();
+      await action();
+      if (!mounted) return;
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(widget.chatService.conversations.active.messages);
+        _composerController.clear();
+        _expandedReasoning.clear();
+        _liveReply = null;
+        _liveReasoningExpanded = false;
+      });
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    } catch (_) {
+      _showStorageError('Could not update conversations. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<bool> _confirmDelete(String title, String message) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  Future<void> _deleteConversation(Conversation chat) async {
+    if (_busy) return;
+    if (await _confirmDelete(
+          'Delete conversation?',
+          'Delete “${chat.title}” and all its messages? This can’t be undone.',
+        ) &&
+        mounted) {
+      await _changeConversation(
+        () => widget.chatService.conversations.delete(chat.id),
+      );
+    }
+  }
+
+  Future<void> _deleteAllChats() async {
+    if (_busy) return;
+    if (await _confirmDelete(
+          'Delete all conversations?',
+          'Delete all conversations and their messages? This can’t be undone.',
+        ) &&
+        mounted) {
+      await _changeConversation(widget.chatService.conversations.deleteAll);
+    }
+  }
+
+  Future<void> _renameConversation(Conversation chat) async {
+    if (_busy) return;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenameConversationDialog(title: chat.title),
+    );
+    if (name != null && mounted) {
+      await _changeConversation(
+        () => widget.chatService.conversations.rename(chat.id, name),
+      );
+    }
+  }
+
+  Widget _conversationDrawer() {
+    final chats = [...widget.chatService.conversations.conversations]
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            const ListTile(title: Text('Conversations')),
+            ListTile(
+              key: const Key('newChatButton'),
+              leading: const Icon(Icons.add),
+              title: const Text('New chat'),
+              enabled: !_busy,
+              onTap: _busy
+                  ? null
+                  : () {
+                      Navigator.pop(context);
+                      _changeConversation(
+                        widget.chatService.conversations.create,
+                      );
+                    },
+            ),
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final chat in chats)
+                    ListTile(
+                      key: ValueKey('conversation-${chat.id}'),
+                      title: Text(
+                        chat.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      selected:
+                          chat.id == widget.chatService.conversations.activeId,
+                      enabled: !_busy,
+                      onTap: _busy
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _changeConversation(
+                                () => widget.chatService.conversations.select(
+                                  chat.id,
+                                ),
+                              );
+                            },
+                      trailing: PopupMenuButton<String>(
+                        key: ValueKey('conversation-actions-${chat.id}'),
+                        enabled: !_busy,
+                        onSelected: (value) {
+                          Navigator.pop(context);
+                          if (value == 'rename') _renameConversation(chat);
+                          if (value == 'delete') _deleteConversation(chat);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'rename', child: Text('Rename')),
+                          PopupMenuItem(value: 'delete', child: Text('Delete')),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            ListTile(
+              title: const Text('Delete all conversations'),
+              leading: const Icon(Icons.delete_sweep_outlined),
+              enabled: !_busy,
+              onTap: _busy
+                  ? null
+                  : () {
+                      Navigator.pop(context);
+                      _deleteAllChats();
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showStorageError(String message) {
@@ -181,12 +359,28 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSending = true;
       _liveReasoningExpanded = false;
     });
+    final originId = widget.chatService.conversations.activeId;
     _replySubscription = widget.chatService
-        .streamReply(List<ChatMessage>.of(_messages))
+        .streamReply(List<ChatMessage>.of(_messages), conversationId: originId)
         .listen(
-          (reply) => setState(() => _liveReply = reply),
-          onDone: _finishReply,
-          onError: _failReply,
+          (reply) {
+            if (mounted &&
+                widget.chatService.conversations.activeId == originId) {
+              setState(() => _liveReply = reply);
+            }
+          },
+          onDone: () {
+            if (mounted &&
+                widget.chatService.conversations.activeId == originId) {
+              _finishReply();
+            }
+          },
+          onError: (Object error) {
+            if (mounted &&
+                widget.chatService.conversations.activeId == originId) {
+              _failReply(error);
+            }
+          },
           cancelOnError: true,
         );
   }
@@ -264,9 +458,10 @@ class _ChatScreenState extends State<ChatScreen> {
       await widget.speechService.stopListening();
       return;
     }
+    final generation = _speechGeneration;
     await widget.speechService.startListening(
       onText: (text) {
-        if (!mounted) return;
+        if (!mounted || generation != _speechGeneration) return;
         _composerController.value = TextEditingValue(
           text: text,
           selection: TextSelection.collapsed(offset: text.length),
@@ -311,6 +506,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final liveReply = _shownLiveReply;
     final messages = <ChatMessage>[..._messages, ?liveReply];
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: _conversationDrawer(),
+      drawerEnableOpenDragGesture: !_busy,
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -318,12 +516,36 @@ class _ChatScreenState extends State<ChatScreen> {
             children: <Widget>[
               SafeArea(
                 bottom: false,
-                child: ChatHeader(onSettingsTap: _busy ? null : _openSettings),
+                child: ChatHeader(
+                  onSettingsTap: _busy ? null : _openSettings,
+                  onChatsTap: _busy
+                      ? null
+                      : () => _scaffoldKey.currentState?.openDrawer(),
+                ),
               ),
+              if (!_isLoading && !_historyLoadFailed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Chat: ${widget.chatService.conversations.active.title}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               const Divider(height: 1),
               Expanded(
                 child: _isLoading
                     ? const Center(child: CircularProgressIndicator())
+                    : _historyLoadFailed
+                    ? Center(
+                        child: TextButton(
+                          onPressed: () {
+                            setState(() => _isLoading = true);
+                            _loadHistory();
+                          },
+                          child: const Text('Retry loading chats'),
+                        ),
+                      )
                     : messages.isEmpty
                     ? const Center(
                         child: Padding(
@@ -394,4 +616,55 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
+}
+
+class _RenameConversationDialog extends StatefulWidget {
+  const _RenameConversationDialog({required this.title});
+  final String title;
+  @override
+  State<_RenameConversationDialog> createState() =>
+      _RenameConversationDialogState();
+}
+
+class _RenameConversationDialogState extends State<_RenameConversationDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.title,
+  );
+  final _form = GlobalKey<FormState>();
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Rename conversation'),
+    content: Form(
+      key: _form,
+      child: TextFormField(
+        controller: _controller,
+        key: const Key('conversationTitleInput'),
+        autofocus: true,
+        maxLength: 100,
+        decoration: const InputDecoration(labelText: 'Title'),
+        validator: (value) =>
+            value == null || value.trim().isEmpty ? 'Enter a title' : null,
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (_form.currentState!.validate()) {
+            Navigator.pop(context, _controller.text.trim());
+          }
+        },
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }
