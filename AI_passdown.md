@@ -27,6 +27,14 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #18 - iOS configuration
+
+- Runner uses `com.sonniersolution.cozysidekick` for Debug, Release, and Profile; RunnerTests uses `com.sonniersolution.cozysidekick.RunnerTests`.
+- The minimum iOS version remains 15.0, and `ios/Podfile` explicitly declares `platform :ios, '15.0'`.
+- The visible app name remains Cozy Sidekick. Microphone and speech-recognition usage descriptions remain in Info.plist because speech-to-text is implemented.
+- Validation: `flutter pub get`, `flutter analyze`, `flutter test` (170 tests), and `flutter build ios --no-codesign` pass. The built app reports the expected bundle ID, display name, and iOS 15.0 minimum.
+- Physical iPhone execution was validated previously. After this configuration change, run a final device smoke test: chat, restart, and confirm the key, provider choice, personality, and chat history persist.
+
 ### Issue #10 - GroqCloud provider
 
 - `GroqProvider` reuses `OpenAiCompatibleProvider` with `https://api.groq.com/openai/v1` (`/chat/completions`) and the text model `openai/gpt-oss-20b`. This matches the proven Teddy Chat Groq setup for text chat without copying its separate provider architecture.
