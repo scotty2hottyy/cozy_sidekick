@@ -19,6 +19,159 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final fails in [false, true]) {
+    testWidgets(
+      'reading position survives reasoning growth and ${fails ? "failure" : "completion"}',
+      (tester) async {
+        final history = FakeChatHistoryStore()
+          ..messages = List.generate(30, (i) => ChatMessage.user('Anchor $i'));
+        final provider = _StreamingProvider();
+        await tester.pumpWidget(
+          _app(
+            conversationStore: history,
+            provider: provider,
+            settingsStore: InMemorySettingsStore(showReasoning: true),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _startMessage(tester, 'Think about this');
+        provider.add('', reasoning: 'First thought');
+        await tester.pump(Duration.zero);
+        final viewport = find.byType(CustomScrollView);
+        await tester.drag(viewport, const Offset(0, 350));
+        // Thinking has a timer, so don't wait for all animations to settle.
+        await tester.pump(const Duration(seconds: 1));
+        final bounds = tester.getRect(viewport);
+        String? anchor;
+        for (var i = 0; i < 30; i++) {
+          final finder = find.text('Anchor $i');
+          if (finder.evaluate().isNotEmpty &&
+              tester.getTopLeft(finder).dy > bounds.top + 30 &&
+              tester.getTopLeft(finder).dy < bounds.bottom - 80) {
+            anchor = 'Anchor $i';
+            break;
+          }
+        }
+        expect(anchor, isNotNull);
+        final before = tester.getTopLeft(find.text(anchor!)).dy;
+        provider.add(
+          '',
+          reasoning: List.generate(35, (i) => 'Thought $i').join('\n'),
+        );
+        await tester.pump(Duration.zero);
+        expect(tester.getTopLeft(find.text(anchor)).dy, closeTo(before, 1));
+        if (fails) {
+          provider.fail(const NetworkException());
+        } else {
+          provider.add('Final answer', reasoning: 'Finished thinking');
+          await tester.pump(Duration.zero);
+          expect(tester.getTopLeft(find.text(anchor)).dy, closeTo(before, 1));
+          await provider.finish();
+        }
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(find.text(anchor)).dy, closeTo(before, 1));
+        expect(find.byKey(const Key('jumpToLatestButton')), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets('changing conversation resets scroll and hides jump control', (
+    tester,
+  ) async {
+    final history = FakeChatHistoryStore()
+      ..messages = List.generate(30, (i) => ChatMessage.user('Old $i'));
+    await tester.pumpWidget(_app(conversationStore: history));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 350));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('jumpToLatestButton')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('chatsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('newChatButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('jumpToLatestButton')), findsNothing);
+    expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
+  });
+
+  testWidgets(
+    'stream growth preserves older message position and jump resumes following',
+    (tester) async {
+      final history = FakeChatHistoryStore()
+        ..messages = List.generate(30, (i) => ChatMessage.user('History $i'));
+      final provider = _StreamingProvider();
+      await tester.pumpWidget(
+        _app(
+          conversationStore: history,
+          provider: provider,
+          settingsStore: InMemorySettingsStore(
+            messageFormatting: const MessageFormatting(formatReplies: false),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startMessage(tester, 'New question');
+      provider.add('Short answer');
+      await tester.pump(Duration.zero);
+      final viewport = find.byType(CustomScrollView);
+      final scrollable = find
+          .descendant(of: viewport, matching: find.byType(Scrollable))
+          .first;
+      final position = tester.state<ScrollableState>(scrollable).position;
+      await tester.drag(viewport, const Offset(0, 350));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jumpToLatestButton')), findsOneWidget);
+      final bounds = tester.getRect(viewport);
+      String? anchor;
+      for (var i = 0; i < 30; i++) {
+        final text = find.text('History $i');
+        if (text.evaluate().isNotEmpty) {
+          final y = tester.getTopLeft(text).dy;
+          if (y > bounds.top + 30 && y < bounds.bottom - 60) {
+            anchor = 'History $i';
+            break;
+          }
+        }
+      }
+      expect(anchor, isNotNull);
+      final before = tester.getTopLeft(find.text(anchor!)).dy;
+      for (final lines in [20, 40, 60]) {
+        provider.add(List.generate(lines, (i) => 'Answer line $i').join('\n'));
+        await tester.pump(Duration.zero);
+        expect(tester.getTopLeft(find.text(anchor)).dy, closeTo(before, 1));
+      }
+      await tester.tap(find.byKey(const Key('jumpToLatestButton')));
+      await tester.pumpAndSettle();
+      expect(position.pixels, closeTo(0, 0.1));
+      expect(find.byKey(const Key('jumpToLatestButton')), findsNothing);
+      provider.add(List.generate(80, (i) => 'Answer line $i').join('\n'));
+      await tester.pump(Duration.zero);
+      expect(position.pixels, closeTo(0, 0.1));
+      await provider.finish();
+      await tester.pumpAndSettle();
+      expect(position.pixels, closeTo(0, 0.1));
+    },
+  );
+
+  testWidgets(
+    'jump button appears on old history and stays hidden for short chats',
+    (tester) async {
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jumpToLatestButton')), findsNothing);
+      final history = FakeChatHistoryStore()
+        ..messages = List.generate(30, (i) => ChatMessage.user('Older $i'));
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_app(conversationStore: history));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 350));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jumpToLatestButton')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('jumpToLatestButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jumpToLatestButton')), findsNothing);
+    },
+  );
+
   testWidgets('rename and confirmed individual/all deletion from drawer', (
     tester,
   ) async {
@@ -409,7 +562,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final toggle = find.byKey(const Key('reasoningToggle'));
-    final list = tester.getRect(find.byType(ListView));
+    final list = tester.getRect(find.byType(CustomScrollView));
     final closedTop = tester.getTopLeft(toggle).dy;
 
     // The reply grows upward, so the list scrolls to keep its row in view.

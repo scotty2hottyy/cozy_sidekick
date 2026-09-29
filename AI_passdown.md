@@ -211,3 +211,8 @@ Validation:
 - ChatService now injects ConversationStore. Reply persistence captures the originating ID and revision; deleting/clearing a chat invalidates late saves. Conversation changes are disabled in the UI during streaming; new chats clear drafts and speech callbacks are scoped to the current view. Providers and personalities remain global. Streaming, reasoning, formatting and retry behavior are retained.
 - Only the active chat's newest 20 messages are sent to the provider. Last active conversation is restored on startup. No database or new dependencies.
 - Test coverage includes JSON round trips, migration, corrupt-file preservation, limits, serialized operations, failed writes, reply routing after selection/deletion, restart restoration, and UI rename/delete confirmations. Manual device relaunch and real-provider testing remain recommended.
+
+### Streaming scroll quality of life
+- The reversed chat viewport separates the live reply into an exactly measured sliver ahead of lazy message history. AnchoredReplySliver compensates for live extent changes when the user has scrolled away, preserving the message being read without relying on estimated list extents.
+- A Jump to latest button appears more than 40 pixels from the latest end. Tapping returns to offset zero and resumes following. Switching chats resets scroll state. Existing manual reasoning expansion retains its own scroll adjustment.
+- Widget tests measure old messages' on-screen positions through streaming answer/reasoning growth, completion/failure, jump-to-latest, and conversation changes.

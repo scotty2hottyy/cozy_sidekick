@@ -14,6 +14,7 @@ import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import '../services/speech_service.dart';
 import '../widgets/chat_header.dart';
+import '../widgets/anchored_reply_sliver.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_composer.dart';
 import 'api_credentials_screen.dart';
@@ -43,6 +44,12 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = <ChatMessage>[];
   final TextEditingController _composerController = TextEditingController();
+  final ScrollController _chatScroll = ScrollController(
+    keepScrollOffset: false,
+  );
+  bool _followingLatest = true;
+  int _streamLayoutRevision = 0;
+  static const double _latestThreshold = 40;
   bool _isSending = false;
   bool _isLoading = true;
   bool _isClearing = false;
@@ -70,8 +77,23 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _chatScroll.addListener(_trackChatScroll);
     unawaited(_loadChatSettings());
     unawaited(_loadHistory());
+  }
+
+  void _trackChatScroll() {
+    if (!_chatScroll.hasClients) return;
+    final following = _chatScroll.position.pixels <= _latestThreshold;
+    if (_followingLatest == following) return;
+    setState(() => _followingLatest = following);
+  }
+
+  void _jumpToLatest() {
+    if (!_chatScroll.hasClients) return;
+    // Offset zero is the newest end of this reversed viewport.
+    _chatScroll.jumpTo(0);
+    if (!_followingLatest) setState(() => _followingLatest = true);
   }
 
   /// Loads the settings that change how the chat looks. Runs at startup and
@@ -145,6 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ..clear()
           ..addAll(widget.chatService.conversations.active.messages);
         _composerController.clear();
+        _followingLatest = true;
         _expandedReasoning.clear();
         _liveReply = null;
         _liveReasoningExpanded = false;
@@ -327,6 +350,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         setState(() {
           _messages.clear();
+          _followingLatest = true;
           _expandedReasoning.clear();
         });
       }
@@ -366,7 +390,10 @@ class _ChatScreenState extends State<ChatScreen> {
           (reply) {
             if (mounted &&
                 widget.chatService.conversations.activeId == originId) {
-              setState(() => _liveReply = reply);
+              setState(() {
+                _liveReply = reply;
+                _streamLayoutRevision++;
+              });
             }
           },
           onDone: () {
@@ -400,6 +427,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Retry can ask again.
   void _failReply(Object error) {
     setState(() {
+      _streamLayoutRevision++;
       _liveReply = null;
       _replySubscription = null;
       _isSending = false;
@@ -496,6 +524,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // The request itself stops when its next piece arrives, because the
     // `await for` loops under this stream only notice a cancel then.
     unawaited(_replySubscription?.cancel());
+    _chatScroll.dispose();
     _composerController.dispose();
     unawaited(widget.speechService.dispose());
     super.dispose();
@@ -504,7 +533,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final liveReply = _shownLiveReply;
-    final messages = <ChatMessage>[..._messages, ?liveReply];
+    final hasMessages = _messages.isNotEmpty || liveReply != null;
     return Scaffold(
       key: _scaffoldKey,
       drawer: _conversationDrawer(),
@@ -546,7 +575,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: const Text('Retry loading chats'),
                         ),
                       )
-                    : messages.isEmpty
+                    : !hasMessages
                     ? const Center(
                         child: Padding(
                           padding: EdgeInsets.all(24),
@@ -556,53 +585,112 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         ),
                       )
-                    : ListView.separated(
-                        reverse: true,
-                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        itemCount: messages.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 12),
-                        itemBuilder: (_, index) {
-                          final message = messages[messages.length - 1 - index];
-                          final isLive = identical(message, liveReply);
-                          return MessageBubble(
-                            message: message,
-                            formatting: _formatting,
-                            showReasoning: _showReasoning,
-                            reasoningExpanded: isLive
-                                ? _liveReasoningExpanded
-                                : _expandedReasoning.contains(message),
-                            onReasoningToggle: isLive
-                                ? _toggleLiveReasoning
-                                : () => _toggleReasoning(message),
-                          );
-                        },
+                    : Stack(
+                        children: [
+                          CustomScrollView(
+                            key: ValueKey(
+                              'chatMessages-${widget.chatService.conversations.activeId}',
+                            ),
+                            controller: _chatScroll,
+                            reverse: true,
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            slivers: [
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  20,
+                                  16,
+                                  12,
+                                ),
+                                sliver: SliverMainAxisGroup(
+                                  slivers: [
+                                    AnchoredReplySliver(
+                                      revision: _streamLayoutRevision,
+                                      preservePosition: !_followingLatest,
+                                      child: SliverToBoxAdapter(
+                                        child: liveReply != null
+                                            ? Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 12,
+                                                ),
+                                                child: MessageBubble(
+                                                  message: liveReply,
+                                                  formatting: _formatting,
+                                                  showReasoning: _showReasoning,
+                                                  reasoningExpanded:
+                                                      _liveReasoningExpanded,
+                                                  onReasoningToggle:
+                                                      _toggleLiveReasoning,
+                                                ),
+                                              )
+                                            : _isSending
+                                            ? Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 12,
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    const SizedBox(
+                                                      width: 16,
+                                                      height: 16,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                          ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    Text(
+                                                      _liveReply?.reasoning ==
+                                                              null
+                                                          ? 'Sidekick is typing…'
+                                                          : 'Sidekick is thinking…',
+                                                    ),
+                                                  ],
+                                                ),
+                                              )
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ),
+                                    SliverList.separated(
+                                      itemCount: _messages.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: 12),
+                                      itemBuilder: (_, index) {
+                                        final message =
+                                            _messages[_messages.length -
+                                                1 -
+                                                index];
+                                        return MessageBubble(
+                                          message: message,
+                                          formatting: _formatting,
+                                          showReasoning: _showReasoning,
+                                          reasoningExpanded: _expandedReasoning
+                                              .contains(message),
+                                          onReasoningToggle: () =>
+                                              _toggleReasoning(message),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (!_followingLatest)
+                            Positioned(
+                              right: 16,
+                              bottom: 12,
+                              child: FilledButton.icon(
+                                key: const Key('jumpToLatestButton'),
+                                onPressed: _jumpToLatest,
+                                icon: const Icon(Icons.arrow_downward),
+                                label: const Text('Jump to latest'),
+                              ),
+                            ),
+                        ],
                       ),
               ),
-              if (_isSending && liveReply == null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 10),
-                      // Reasoning that's arriving while Show reasoning is off.
-                      Text(
-                        _liveReply?.reasoning == null
-                            ? 'Sidekick is typing…'
-                            : 'Sidekick is thinking…',
-                      ),
-                    ],
-                  ),
-                ),
               MessageComposer(
                 controller: _composerController,
                 onSend: _send,
