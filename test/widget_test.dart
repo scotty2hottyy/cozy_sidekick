@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cozy_sidekick/services/chat_history_store.dart';
+import 'package:cozy_sidekick/services/conversation_store.dart';
 
 import 'fake_chat_history_store.dart';
 
@@ -20,11 +20,137 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('rename and confirmed individual/all deletion from drawer', (
+    tester,
+  ) async {
+    final store = FakeChatHistoryStore()
+      ..messages = [ChatMessage.user('Original')];
+    await tester.pumpWidget(_app(conversationStore: store));
+    await tester.pumpAndSettle();
+    final originalId = store.state?.activeId;
+    // The initial read is enough to show the chat, even before a write.
+    Future<void> openDrawer() async {
+      await tester.tap(find.byKey(const Key('chatsButton')));
+      await tester.pumpAndSettle();
+    }
+
+    await openDrawer();
+    final actionMenu = find.byWidgetPredicate(
+      (w) =>
+          w is PopupMenuButton<String> &&
+          w.key.toString().contains('conversation-actions-'),
+    );
+    await tester.tap(actionMenu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('conversationTitleInput')),
+      '  ',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a title'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('conversationTitleInput')),
+      'Renamed chat',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(store.state!.conversations.single.title, 'Renamed chat');
+    final id = store.state!.activeId!;
+    if (originalId != null) expect(id, originalId);
+    await openDrawer();
+    await tester.tap(find.byKey(const Key('newChatButton')));
+    await tester.pumpAndSettle();
+    Future<void> askDeleteOriginal() async {
+      await openDrawer();
+      await tester.tap(find.byKey(ValueKey('conversation-actions-$id')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+    }
+
+    await askDeleteOriginal();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(store.state!.conversations, hasLength(2));
+    await askDeleteOriginal();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(store.state!.conversations, hasLength(1));
+    expect(store.state!.conversations.any((c) => c.id == id), isFalse);
+    await openDrawer();
+    await tester.tap(find.byKey(const Key('newChatButton')));
+    await tester.pumpAndSettle();
+    final before = store.state!.conversations.map((c) => c.id).toList();
+    Future<void> askDeleteAll() async {
+      await openDrawer();
+      await tester.tap(find.text('Delete all conversations'));
+      await tester.pumpAndSettle();
+    }
+
+    await askDeleteAll();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(store.state!.conversations.map((c) => c.id), before);
+    await askDeleteAll();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(store.state!.conversations, hasLength(1));
+    expect(before, isNot(contains(store.state!.activeId)));
+    expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
+  });
+
+  testWidgets(
+    'new chat isolates messages and drawer restores previous chat after restart',
+    (tester) async {
+      final store = FakeChatHistoryStore();
+      final provider = _FakeProvider();
+      await tester.pumpWidget(
+        _app(conversationStore: store, provider: provider),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('messageInput')),
+        'First question',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('sendButton')));
+      await tester.pumpAndSettle();
+      final firstId = store.state!.activeId!;
+      await tester.tap(find.byKey(const Key('chatsButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('newChatButton')));
+      await tester.pumpAndSettle();
+      expect(find.text('First question'), findsNothing);
+      expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('messageInput')),
+        'Second question',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('sendButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('chatsButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('conversation-$firstId')));
+      await tester.pumpAndSettle();
+      expect(find.text('First question'), findsOneWidget);
+      expect(find.text('Second question'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_app(conversationStore: store));
+      await tester.pumpAndSettle();
+      expect(find.text('First question'), findsOneWidget);
+      expect(store.state!.activeId, firstId);
+    },
+  );
+
   testWidgets('sent conversation is restored after screen recreation', (
     tester,
   ) async {
     final history = FakeChatHistoryStore();
-    await tester.pumpWidget(_app(historyStore: history));
+    await tester.pumpWidget(_app(conversationStore: history));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('messageInput')),
@@ -34,6 +160,7 @@ void main() {
     await tester.tap(find.byKey(const Key('sendButton')));
     await tester.pump();
     expect(history.messages.single.text, 'Remember this');
+    expect(_button(tester, 'chatsButton').onPressed, isNull);
     expect(_button(tester, 'settingsButton').onPressed, isNull);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     await tester.pumpAndSettle();
@@ -42,7 +169,7 @@ void main() {
       'Provider: Remember this',
     ]);
     await tester.pumpWidget(const SizedBox());
-    await tester.pumpWidget(_app(historyStore: history));
+    await tester.pumpWidget(_app(conversationStore: history));
     await tester.pumpAndSettle();
     expect(find.text('Remember this'), findsOneWidget);
     expect(find.text('Provider: Remember this'), findsOneWidget);
@@ -52,7 +179,7 @@ void main() {
     tester,
   ) async {
     final history = _DelayedHistoryStore();
-    await tester.pumpWidget(_app(historyStore: history));
+    await tester.pumpWidget(_app(conversationStore: history));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(_button(tester, 'sendButton').onPressed, isNull);
     expect(_button(tester, 'microphoneButton').onPressed, isNull);
@@ -73,7 +200,7 @@ void main() {
     (tester) async {
       final history = FakeChatHistoryStore()
         ..messages = [ChatMessage.user('Saved message')];
-      await tester.pumpWidget(_app(historyStore: history));
+      await tester.pumpWidget(_app(conversationStore: history));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settingsButton')));
       await tester.pumpAndSettle();
@@ -118,7 +245,7 @@ void main() {
       expect(find.text('Saved message'), findsNothing);
       expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
-      await tester.pumpWidget(_app(historyStore: history));
+      await tester.pumpWidget(_app(conversationStore: history));
       await tester.pumpAndSettle();
       expect(find.text('Say hi to your sidekick 👋'), findsOneWidget);
     },
@@ -195,7 +322,7 @@ void main() {
         ChatMessage.assistant('**Bold** hi'),
       ];
     await tester.pumpWidget(
-      _app(historyStore: history, settingsStore: settings),
+      _app(conversationStore: history, settingsStore: settings),
     );
     await tester.pumpAndSettle();
     expect(find.text('**Bold** hi'), findsOneWidget);
@@ -228,7 +355,7 @@ void main() {
         ChatMessage.assistant('No.', reasoning: 'Try dividing by 7.'),
       ];
     await tester.pumpWidget(
-      _app(historyStore: history, settingsStore: settings),
+      _app(conversationStore: history, settingsStore: settings),
     );
     await tester.pumpAndSettle();
     final toggle = find.byKey(const Key('reasoningToggle'));
@@ -269,7 +396,7 @@ void main() {
       ];
     await tester.pumpWidget(
       _app(
-        historyStore: history,
+        conversationStore: history,
         settingsStore: InMemorySettingsStore(showReasoning: true),
         provider: _FakeProvider(reasoning: '1001 = 7 * 143.'),
       ),
@@ -308,7 +435,7 @@ void main() {
       ];
     await tester.pumpWidget(
       _app(
-        historyStore: history,
+        conversationStore: history,
         settingsStore: InMemorySettingsStore(showReasoning: true),
       ),
     );
@@ -439,7 +566,9 @@ void main() {
   ) async {
     final history = FakeChatHistoryStore();
     final provider = _FlakyProvider(<Object>[const NetworkException()]);
-    await tester.pumpWidget(_app(historyStore: history, provider: provider));
+    await tester.pumpWidget(
+      _app(conversationStore: history, provider: provider),
+    );
     await tester.pumpAndSettle();
     await _sendMessage(tester, 'Hello');
     await tester.tap(find.widgetWithText(SnackBarAction, 'Retry'));
@@ -523,7 +652,7 @@ void main() {
       final provider = _StreamingProvider();
       await tester.pumpWidget(
         _app(
-          historyStore: history,
+          conversationStore: history,
           settingsStore: InMemorySettingsStore(showReasoning: true),
           provider: provider,
         ),
@@ -635,7 +764,9 @@ void main() {
     ) async {
       final history = FakeChatHistoryStore();
       final provider = _StreamingProvider();
-      await tester.pumpWidget(_app(historyStore: history, provider: provider));
+      await tester.pumpWidget(
+        _app(conversationStore: history, provider: provider),
+      );
       await tester.pumpAndSettle();
       await _startMessage(tester, 'Hello');
       provider.add('Half of a');
@@ -669,7 +800,9 @@ void main() {
     testWidgets('leaving the chat stops the reply', (tester) async {
       final history = FakeChatHistoryStore();
       final provider = _StreamingProvider();
-      await tester.pumpWidget(_app(historyStore: history, provider: provider));
+      await tester.pumpWidget(
+        _app(conversationStore: history, provider: provider),
+      );
       await tester.pumpAndSettle();
       await _startMessage(tester, 'Hello');
       provider.add('Half of a');
@@ -705,7 +838,7 @@ Future<void> _startMessage(WidgetTester tester, String text) async {
 CozySidekickApp _app({
   SpeechService? speechService,
   PersonalityStore? personalityStore,
-  ChatHistoryStore? historyStore,
+  ConversationStore? conversationStore,
   AiProvider? provider,
   InMemorySettingsStore? settingsStore,
 }) {
@@ -717,7 +850,7 @@ CozySidekickApp _app({
   };
   return CozySidekickApp(
     chatService: ChatService(
-      historyStore: historyStore ?? FakeChatHistoryStore(),
+      conversationStore: conversationStore ?? FakeChatHistoryStore(),
       settingsStore: settings,
       personalityStore: personalities,
       providers: providers,

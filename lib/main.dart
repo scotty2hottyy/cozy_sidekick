@@ -8,7 +8,7 @@ import 'ai/openrouter_provider.dart';
 import 'app.dart';
 import 'services/api_key_store.dart';
 import 'services/chat_service.dart';
-import 'services/chat_history_store.dart';
+import 'services/conversation_store.dart';
 import 'services/model_list_service.dart';
 import 'services/provider_connection_service.dart';
 import 'services/personality_service.dart';
@@ -37,7 +37,7 @@ Future<void> main() async {
   runApp(
     CozySidekickApp(
       chatService: ChatService(
-        historyStore: FileChatHistoryStore(),
+        conversationStore: FileConversationStore(),
         settingsStore: settingsStore,
         personalityStore: personalityStore,
         providers: providers,

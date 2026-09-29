@@ -27,6 +27,14 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #18 - iOS configuration
+
+- Runner uses `com.sonniersolution.cozysidekick` for Debug, Release, and Profile; RunnerTests uses `com.sonniersolution.cozysidekick.RunnerTests`.
+- The minimum iOS version remains 15.0, and `ios/Podfile` explicitly declares `platform :ios, '15.0'`.
+- The visible app name remains Cozy Sidekick. Microphone and speech-recognition usage descriptions remain in Info.plist because speech-to-text is implemented.
+- Validation: `flutter pub get`, `flutter analyze`, `flutter test` (170 tests), and `flutter build ios --no-codesign` pass. The built app reports the expected bundle ID, display name, and iOS 15.0 minimum.
+- Physical iPhone execution was validated previously. After this configuration change, run a final device smoke test: chat, restart, and confirm the key, provider choice, personality, and chat history persist.
+
 ### Issue #10 - GroqCloud provider
 
 - `GroqProvider` reuses `OpenAiCompatibleProvider` with `https://api.groq.com/openai/v1` (`/chat/completions`) and the text model `openai/gpt-oss-20b`. This matches the proven Teddy Chat Groq setup for text chat without copying its separate provider architecture.
@@ -195,6 +203,14 @@ Validation:
 - `MessageBubble` treats a reply with reasoning but no answer yet as thinking: the row reads Thinking… with the seconds so far (Thinking… 12s), stays open, and can't be tapped. When the answer starts, it's the usual collapsed Reasoning row.
 - In widget tests, a fake provider hands out pieces from a `StreamController`. Call `tester.pump(Duration.zero)` after each piece, because a plain `pump()` doesn't draw when no frame is scheduled.
 - Validation: `flutter analyze` passes; `flutter test` passes (165 tests). Checked in the iOS Simulator (iPhone 17 Pro) against a local mock of OpenRouter's stream: streamed reasoning with Show reasoning on and off, a long answer, an error piece and a dropped connection. Not checked yet: a real provider stream.
+
+### Multi-conversation chat
+- Added immutable Conversation / ConversationState models, a FileConversationStore and a serialized ConversationService. Each chat has its own ID, title, timestamps and capped 500-message history. Titles use the first user message (whitespace normalized, 60 Unicode code points); explicit renames are preserved.
+- `conversations.json` in application documents stores the conversations and active ID in an atomic temporary-file/rename snapshot. First use migrates `chat_history.json`; only after a successful replacement write is the old file removed. Invalid existing history stays untouched and the UI offers Retry loading chats.
+- The chat drawer offers New chat, switch, Rename, confirmed Delete, and confirmed Delete all conversations. Deleting the final chat creates a fresh empty chat. Settings → Chat History retains Clear chat for the active conversation and adds Delete all conversations.
+- ChatService now injects ConversationStore. Reply persistence captures the originating ID and revision; deleting/clearing a chat invalidates late saves. Conversation changes are disabled in the UI during streaming; new chats clear drafts and speech callbacks are scoped to the current view. Providers and personalities remain global. Streaming, reasoning, formatting and retry behavior are retained.
+- Only the active chat's newest 20 messages are sent to the provider. Last active conversation is restored on startup. No database or new dependencies.
+- Test coverage includes JSON round trips, migration, corrupt-file preservation, limits, serialized operations, failed writes, reply routing after selection/deletion, restart restoration, and UI rename/delete confirmations. Manual device relaunch and real-provider testing remain recommended.
 
 ### Issue #27 - Model selection per provider
 - `AiProviderType` has `defaultModel` and `suggestedModels`, with the default first. The provider classes take their default from there, and `test/ai/ai_provider_test.dart` checks that the two match. The custom server has neither, because the server picks its own model.

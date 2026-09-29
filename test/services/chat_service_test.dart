@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../fake_chat_history_store.dart';
 
 import 'package:cozy_sidekick/ai/ai_provider.dart';
@@ -10,11 +12,64 @@ import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('reply stays with originating chat when active chat changes during streaming', () async {
+    final provider = _ControlledProvider();
+    final service = ChatService(
+      conversationStore: FakeChatHistoryStore(),
+      settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
+      providers: {AiProviderType.openRouter: provider},
+    );
+    await service.loadHistory();
+    final origin = service.conversations.active.id;
+    final done = service.streamReply([
+      ChatMessage.user('Only in A'),
+    ], conversationId: origin).toList();
+    await provider.started.future;
+    await service.conversations.create();
+    final other = service.conversations.active.id;
+    provider.replies.add(const AiReply(text: 'Answer for A'));
+    await provider.replies.close();
+    await done;
+    expect(service.conversations.active.id, other);
+    expect(service.conversations.active.messages, isEmpty);
+    await service.conversations.select(origin);
+    expect(service.conversations.active.messages.map((m) => m.text), [
+      'Only in A',
+      'Answer for A',
+    ]);
+    expect(provider.context.single.text, 'Only in A');
+  });
+  test('deleting origin during streaming cannot recreate it', () async {
+    final provider = _ControlledProvider();
+    final service = ChatService(
+      conversationStore: FakeChatHistoryStore(),
+      settingsStore: InMemorySettingsStore(),
+      personalityStore: InMemoryPersonalityStore(),
+      providers: {AiProviderType.openRouter: provider},
+    );
+    await service.loadHistory();
+    final origin = service.conversations.active.id;
+    final done = service.streamReply([
+      ChatMessage.user('Delete me'),
+    ], conversationId: origin).toList();
+    await provider.started.future;
+    await service.conversations.delete(origin);
+    provider.replies.add(const AiReply(text: 'Late answer'));
+    await provider.replies.close();
+    await done;
+    expect(
+      service.conversations.conversations.any((c) => c.id == origin),
+      isFalse,
+    );
+    expect(service.conversations.active.messages, isEmpty);
+  });
+
   test('restores and clears saved history', () async {
     final history = FakeChatHistoryStore()
       ..messages = [ChatMessage.user('saved')];
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: {},
@@ -36,7 +91,7 @@ void main() {
         },
       );
       final service = ChatService(
-        historyStore: history,
+        conversationStore: history,
         settingsStore: InMemorySettingsStore(),
         personalityStore: InMemoryPersonalityStore(),
         providers: {AiProviderType.openRouter: provider},
@@ -52,7 +107,7 @@ void main() {
   test('provider failure still retains user message', () async {
     final history = FakeChatHistoryStore();
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: {
@@ -76,7 +131,7 @@ void main() {
     final openRouter = _FakeProvider('router reply');
     final custom = _FakeProvider('custom reply');
     final service = ChatService(
-      historyStore: FakeChatHistoryStore(),
+      conversationStore: FakeChatHistoryStore(),
       settingsStore: settings,
       personalityStore: personalities,
       providers: <AiProviderType, AiProvider>{
@@ -115,7 +170,7 @@ void main() {
     final openRouter = _FakeProvider('router reply');
     final openAi = _FakeProvider('OpenAI reply');
     final service = ChatService(
-      historyStore: FakeChatHistoryStore(),
+      conversationStore: FakeChatHistoryStore(),
       settingsStore: settings,
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{
@@ -144,7 +199,7 @@ void main() {
     final personalities = InMemoryPersonalityStore();
     final provider = _FakeProvider('reply');
     final service = ChatService(
-      historyStore: FakeChatHistoryStore(),
+      conversationStore: FakeChatHistoryStore(),
       settingsStore: settings,
       personalityStore: personalities,
       providers: <AiProviderType, AiProvider>{
@@ -172,7 +227,7 @@ void main() {
     final history = FakeChatHistoryStore();
     final settings = InMemorySettingsStore();
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: settings,
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{
@@ -202,7 +257,7 @@ void main() {
       AiReply(text: 'No, 1001 = 7 * 143.', reasoning: 'Try dividing by 7.'),
     ];
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{
@@ -236,7 +291,7 @@ void main() {
   test('a reply that fails while it arrives saves only the question', () async {
     final history = FakeChatHistoryStore();
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{
@@ -261,7 +316,7 @@ void main() {
   test('a provider that sends nothing is a bad response', () async {
     final history = FakeChatHistoryStore();
     final service = ChatService(
-      historyStore: history,
+      conversationStore: history,
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{
@@ -277,7 +332,7 @@ void main() {
 
   test('rejects an empty conversation', () {
     final service = ChatService(
-      historyStore: FakeChatHistoryStore(),
+      conversationStore: FakeChatHistoryStore(),
       settingsStore: InMemorySettingsStore(),
       personalityStore: InMemoryPersonalityStore(),
       providers: <AiProviderType, AiProvider>{},
@@ -321,4 +376,27 @@ class _FakeProvider implements AiProvider {
     yield* Stream<AiReply>.fromIterable(pieces);
     if (error != null) throw error!;
   }
+}
+
+class _ControlledProvider implements AiProvider {
+  final started = Completer<void>();
+  final replies = StreamController<AiReply>();
+  List<ChatMessage> context = [];
+  @override
+  Stream<AiReply> streamChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+    String? model,
+  }) {
+    context = messages;
+    started.complete();
+    return replies.stream;
+  }
+
+  @override
+  Future<AiReply> sendChat({
+    required String systemPrompt,
+    required List<ChatMessage> messages,
+    String? model,
+  }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 }

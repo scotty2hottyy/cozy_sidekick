@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
 class ChatHistoryScreen extends StatefulWidget {
-  const ChatHistoryScreen({super.key, required this.onClearChat});
+  const ChatHistoryScreen({
+    super.key,
+    required this.onClearChat,
+    this.onDeleteAllChats,
+  });
 
   final Future<void> Function() onClearChat;
+  final Future<void> Function()? onDeleteAllChats;
 
   @override
   State<ChatHistoryScreen> createState() => _ChatHistoryScreenState();
@@ -31,8 +36,14 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const Text('Your current conversation is saved on this device.'),
+            const Text('Your conversations are saved on this device.'),
             const SizedBox(height: 16),
+            if (widget.onDeleteAllChats != null)
+              ListTile(
+                title: const Text('Delete all conversations'),
+                leading: const Icon(Icons.delete_sweep_outlined),
+                onTap: _isClearing ? null : widget.onDeleteAllChats,
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(
@@ -40,7 +51,9 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
                 color: Theme.of(context).colorScheme.error,
               ),
               title: const Text('Clear chat'),
-              subtitle: const Text('Delete all messages from this device'),
+              subtitle: const Text(
+                'Delete messages in the current conversation',
+              ),
               enabled: !_isClearing,
               onTap: _isClearing ? null : _clearChat,
             ),

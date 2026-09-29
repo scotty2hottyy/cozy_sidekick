@@ -1,6 +1,7 @@
 import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
-import 'chat_history_store.dart';
+import 'conversation_store.dart';
+import 'conversation_service.dart';
 import 'personality_service.dart';
 import 'settings_service.dart';
 
@@ -8,11 +9,12 @@ class ChatService {
   ChatService({
     required this.settingsStore,
     required this.personalityStore,
-    required this.historyStore,
+    required ConversationStore conversationStore,
     required Map<AiProviderType, AiProvider> providers,
-  }) : _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
+  }) : conversations = ConversationService(conversationStore),
+       _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
 
-  final ChatHistoryStore historyStore;
+  final ConversationService conversations;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final Map<AiProviderType, AiProvider> _providers;
@@ -23,8 +25,15 @@ class ChatService {
       r'Write math in LaTeX, using \( … \) for inline math and \[ … \] for '
       r"display equations. Don't use $ for math.";
 
-  Future<List<ChatMessage>> loadHistory() => historyStore.load();
-  Future<void> clearHistory() => historyStore.clear();
+  Future<List<ChatMessage>> loadHistory() async {
+    await conversations.initialize();
+    return conversations.active.messages;
+  }
+
+  Future<void> clearHistory() async {
+    await conversations.initialize();
+    await conversations.clear(conversations.active.id);
+  }
 
   Future<ChatMessage> getReply(List<ChatMessage> conversation) =>
       streamReply(conversation).last;
@@ -32,12 +41,22 @@ class ChatService {
   /// The assistant's reply while it arrives. Each event is the reply so far,
   /// and they all have the same `createdAt`. The finished reply is saved
   /// once, at the end, so a reply that fails leaves only the user's message.
-  Stream<ChatMessage> streamReply(List<ChatMessage> conversation) async* {
+  Stream<ChatMessage> streamReply(
+    List<ChatMessage> conversation, {
+    String? conversationId,
+  }) async* {
     if (conversation.isEmpty) {
       throw ArgumentError('conversation cannot be empty');
     }
     final snapshot = List<ChatMessage>.of(conversation);
-    await historyStore.save(snapshot);
+    await conversations.initialize();
+    final originId = conversationId ?? conversations.active.id;
+    final revision = conversations.revision(originId);
+    await conversations.saveMessages(
+      originId,
+      snapshot,
+      expectedRevision: revision,
+    );
     final selected = await settingsStore.loadSelectedProvider();
     final provider = _providers[selected];
     if (provider == null) {
@@ -72,6 +91,9 @@ class ChatService {
     if (message == null) {
       throw const BadResponseException('The provider sent no reply');
     }
-    await historyStore.save(<ChatMessage>[...snapshot, message]);
+    await conversations.saveMessages(originId, <ChatMessage>[
+      ...snapshot,
+      message,
+    ], expectedRevision: revision);
   }
 }
