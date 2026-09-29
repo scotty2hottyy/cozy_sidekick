@@ -212,6 +212,15 @@ Validation:
 - Only the active chat's newest 20 messages are sent to the provider. Last active conversation is restored on startup. No database or new dependencies.
 - Test coverage includes JSON round trips, migration, corrupt-file preservation, limits, serialized operations, failed writes, reply routing after selection/deletion, restart restoration, and UI rename/delete confirmations. Manual device relaunch and real-provider testing remain recommended.
 
+### Streaming scroll quality of life
+- The reversed chat viewport separates the live reply into an exactly measured sliver ahead of lazy message history. AnchoredReplySliver compensates for live extent changes when the user has scrolled away, preserving the message being read without relying on estimated list extents.
+- A Jump to latest button appears more than 40 pixels from the latest end. Tapping returns to offset zero and resumes following. Switching chats resets scroll state. Existing manual reasoning expansion retains its own scroll adjustment.
+- Widget tests measure old messages' on-screen positions through streaming answer/reasoning growth, completion/failure, jump-to-latest, and conversation changes.
+
+### Stop generation
+- During a request, Send becomes a Stop generating button. Stop signals a request-specific GenerationControl, aborts supported HTTP requests, and ends the UI stream promptly even before the first chunk.
+- Received answer text (with reasoning when present) is saved once in the originating conversation. Stopping before answer text leaves only the user message. Late chunks from stopped requests cannot enter subsequent requests.
+- AiProvider sendChat/streamChat now accept optional abortTrigger; HTTP streaming and custom-server requests use AbortableRequest when supplied. Provider implementations/fakes must accept this optional parameter.
 ### Issue #27 - Model selection per provider
 - `AiProviderType` has `defaultModel` and `suggestedModels`, with the default first. The provider classes take their default from there, and `test/ai/ai_provider_test.dart` checks that the two match. The custom server has neither, because the server picks its own model.
 - The suggested IDs were copied from each provider's models page on 2026-09-28. OpenRouter: `openrouter/free`, `openai/gpt-6-luna`, `deepseek/deepseek-v4-flash`, `google/gemini-3.5-flash-lite`, `anthropic/claude-sonnet-5.5`. OpenAI: `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`. Groq: `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`. Groq retired its Llama models for free and developer keys on 2026-08-16, so they aren't suggested. Names change often, so check the list when a suggested model stops working.

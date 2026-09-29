@@ -61,6 +61,7 @@ class _ResultProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   }) async {
     lastModel = model;
@@ -72,6 +73,7 @@ class _ResultProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   }) => Stream<AiReply>.fromFuture(
     sendChat(systemPrompt: systemPrompt, messages: messages),

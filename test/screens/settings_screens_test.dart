@@ -443,6 +443,7 @@ class _OkProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   }) async => const AiReply(text: 'OK');
 
@@ -450,6 +451,7 @@ class _OkProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   }) => Stream<AiReply>.value(const AiReply(text: 'OK'));
 }

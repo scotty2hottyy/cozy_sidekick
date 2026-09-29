@@ -84,6 +84,7 @@ abstract interface class AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   });
 
@@ -92,6 +93,7 @@ abstract interface class AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
     String? model,
   });
 }
