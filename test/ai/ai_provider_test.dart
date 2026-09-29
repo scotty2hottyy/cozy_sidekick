@@ -2,6 +2,7 @@ import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/ai/groq_provider.dart';
 import 'package:cozy_sidekick/ai/openai_compatible_provider.dart';
 import 'package:cozy_sidekick/ai/openai_provider.dart';
+import 'package:cozy_sidekick/ai/open_code_zen_provider.dart';
 import 'package:cozy_sidekick/ai/openrouter_provider.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ void main() {
       OpenRouterProvider(keyStore: keys),
       OpenAiProvider(keyStore: keys),
       GroqProvider(keyStore: keys),
+      OpenCodeZenProvider(keyStore: keys),
     ]) {
       final type = provider.type;
       expect(provider.model, type.defaultModel, reason: '$type');

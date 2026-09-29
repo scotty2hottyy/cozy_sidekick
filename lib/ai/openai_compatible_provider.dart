@@ -70,6 +70,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     final reasoning = StringBuffer();
     final reasoningDetails = StringBuffer();
     final reasoningContent = StringBuffer();
+    int? totalTokens;
 
     String? reasoningSoFar() =>
         _nonBlank('$reasoning') ??
@@ -79,6 +80,10 @@ class OpenAiCompatibleProvider implements AiProvider {
     var shown = const AiReply(text: '');
 
     await for (final event in events) {
+      final usage = event['usage'];
+      if (usage is Map<String, dynamic> && usage['total_tokens'] is int) {
+        totalTokens = usage['total_tokens'] as int;
+      }
       final delta = _delta(event);
       if (delta == null) continue;
 
@@ -98,7 +103,12 @@ class OpenAiCompatibleProvider implements AiProvider {
       }
     }
 
-    final finished = _withReasoning('$content', reasoningSoFar());
+    final parsed = _withReasoning('$content', reasoningSoFar());
+    final finished = AiReply(
+      text: parsed.text,
+      reasoning: parsed.reasoning,
+      totalTokens: totalTokens,
+    );
 
     if (finished.text.isEmpty) {
       throw const BadResponseException(
@@ -195,7 +205,17 @@ class OpenAiCompatibleProvider implements AiProvider {
                 _nonBlank(message['reasoning_content']),
           );
 
-          if (reply.text.isNotEmpty) return reply;
+          if (reply.text.isNotEmpty) {
+            final usage = json['usage'];
+            final totalTokens = usage is Map<String, dynamic>
+                ? usage['total_tokens']
+                : null;
+            return AiReply(
+              text: reply.text,
+              reasoning: reply.reasoning,
+              totalTokens: totalTokens is int ? totalTokens : null,
+            );
+          }
         }
       }
     }

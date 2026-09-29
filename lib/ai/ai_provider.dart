@@ -32,6 +32,13 @@ enum AiProviderType {
       'qwen/qwen3.8-27b',
     ],
   ),
+  openCodeZen(
+    'OpenCode Zen',
+    secretLabel: 'API key',
+    keyUrl: 'https://opencode.ai/zen',
+    defaultModel: 'big-pickle',
+    suggestedModels: <String>['big-pickle'],
+  ),
   customServer('Custom Server', secretLabel: 'Access token');
 
   const AiProviderType(
@@ -58,7 +65,7 @@ enum AiProviderType {
 
 /// What a provider sends back for one chat request.
 class AiReply {
-  const AiReply({required this.text, this.reasoning});
+  const AiReply({required this.text, this.reasoning, this.totalTokens});
 
   /// The answer to show in the chat.
   final String text;
@@ -67,12 +74,18 @@ class AiReply {
   /// any.
   final String? reasoning;
 
-  @override
-  bool operator ==(Object other) =>
-      other is AiReply && other.text == text && other.reasoning == reasoning;
+  /// The provider's total input and output token usage, when reported.
+  final int? totalTokens;
 
   @override
-  int get hashCode => Object.hash(text, reasoning);
+  bool operator ==(Object other) =>
+      other is AiReply &&
+      other.text == text &&
+      other.reasoning == reasoning &&
+      other.totalTokens == totalTokens;
+
+  @override
+  int get hashCode => Object.hash(text, reasoning, totalTokens);
 
   @override
   String toString() => 'AiReply("$text", reasoning: $reasoning)';

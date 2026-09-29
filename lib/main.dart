@@ -4,6 +4,7 @@ import 'ai/ai_provider.dart';
 import 'ai/custom_server_provider.dart';
 import 'ai/groq_provider.dart';
 import 'ai/openai_provider.dart';
+import 'ai/open_code_zen_provider.dart';
 import 'ai/openrouter_provider.dart';
 import 'app.dart';
 import 'services/api_key_store.dart';
@@ -25,6 +26,7 @@ Future<void> main() async {
     AiProviderType.openRouter: OpenRouterProvider(keyStore: keyStore),
     AiProviderType.openAi: OpenAiProvider(keyStore: keyStore),
     AiProviderType.groq: GroqProvider(keyStore: keyStore),
+    AiProviderType.openCodeZen: OpenCodeZenProvider(keyStore: keyStore),
     AiProviderType.customServer: CustomServerProvider(
       keyStore: keyStore,
       settingsStore: settingsStore,

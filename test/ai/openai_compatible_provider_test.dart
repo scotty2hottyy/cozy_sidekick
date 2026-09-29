@@ -219,6 +219,32 @@ void main() {
     ]);
   });
 
+  test('parses total token usage from a completed reply', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.openRouter, 'key');
+    final provider = OpenAiCompatibleProvider(
+      type: AiProviderType.openRouter,
+      baseUrl: 'https://example.com/v1',
+      model: 'test-model',
+      keyStore: keys,
+      client: MockClient(
+        (_) async => http.Response(
+          '{"choices":[{"message":{"content":"Hello"}}],'
+          '"usage":{"total_tokens":42}}',
+          200,
+        ),
+      ),
+    );
+
+    expect(
+      await provider.sendChat(
+        systemPrompt: 'system',
+        messages: <ChatMessage>[ChatMessage.user('Hi')],
+      ),
+      const AiReply(text: 'Hello', totalTokens: 42),
+    );
+  });
+
   group('model list', () {
     late http.Request listed;
     var requests = 0;
@@ -454,6 +480,25 @@ void main() {
         'No.',
         'Why?',
       ]);
+    });
+
+    test('includes usage from the final usage-only event', () async {
+      final provider = await streamingProvider(
+        '${_event(<String, Object?>{'content': 'Hello'})}'
+        'data: ${jsonEncode(<String, Object?>{
+          'choices': <Object?>[],
+          'usage': <String, Object?>{'total_tokens': 42},
+        })}\n\n'
+        '$_done',
+      );
+
+      expect(
+        await ask(provider).toList(),
+        const <AiReply>[
+          AiReply(text: 'Hello'),
+          AiReply(text: 'Hello', totalTokens: 42),
+        ],
+      );
     });
 
     test('streams reasoning from reasoning and reasoning_content', () async {
