@@ -54,7 +54,7 @@ void main() {
       find.byKey(const ValueKey('quota-route-openrouter-free')),
       findsOneWidget,
     );
-    expect(find.text('OpenCode Zen'), findsOneWidget);
+    expect(find.text('Groq'), findsOneWidget);
   });
 
   testWidgets('editing a route saves its model and daily limit', (

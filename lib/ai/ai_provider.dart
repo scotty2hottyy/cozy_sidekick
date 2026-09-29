@@ -32,13 +32,6 @@ enum AiProviderType {
       'qwen/qwen3.8-27b',
     ],
   ),
-  openCodeZen(
-    'OpenCode Zen',
-    secretLabel: 'API key',
-    keyUrl: 'https://opencode.ai/zen',
-    defaultModel: 'big-pickle',
-    suggestedModels: <String>['big-pickle'],
-  ),
   customServer('Custom Server', secretLabel: 'Access token');
 
   const AiProviderType(

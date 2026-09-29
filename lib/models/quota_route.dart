@@ -21,10 +21,11 @@ class QuotaRoute {
       dailyLimit: 50,
     ),
     QuotaRoute(
-      id: 'opencode-zen-free',
-      provider: AiProviderType.openCodeZen,
-      model: 'big-pickle',
+      id: 'groq-free',
+      provider: AiProviderType.groq,
+      model: 'openai/gpt-oss-20b',
       unit: QuotaUnit.requests,
+      dailyLimit: 1000,
     ),
     QuotaRoute(
       id: 'openai-mini',

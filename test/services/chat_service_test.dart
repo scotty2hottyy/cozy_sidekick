@@ -216,7 +216,7 @@ void main() {
       providers: <AiProviderType, AiProvider>{
         AiProviderType.openRouter: openRouter,
         AiProviderType.openAi: openAi,
-        AiProviderType.openCodeZen: _FakeProvider('Zen reply'),
+        AiProviderType.groq: _FakeProvider('Groq reply'),
       },
       usageTracker: UsageTracker(now: () => DateTime.utc(2026, 9, 29)),
     );

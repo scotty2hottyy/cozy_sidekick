@@ -18,11 +18,24 @@ void main() {
   );
   const second = QuotaRoute(
     id: 'second',
-    provider: AiProviderType.openCodeZen,
+    provider: AiProviderType.groq,
     model: 'second-model',
     unit: QuotaUnit.requests,
     dailyLimit: 2,
   );
+
+  test('the second default free route uses Groq and its daily limit', () {
+    expect(
+      QuotaRoute.defaults[1],
+      const QuotaRoute(
+        id: 'groq-free',
+        provider: AiProviderType.groq,
+        model: 'openai/gpt-oss-20b',
+        unit: QuotaUnit.requests,
+        dailyLimit: 1000,
+      ),
+    );
+  });
 
   test(
     'tries enabled routes in order and records the successful route',
@@ -30,7 +43,7 @@ void main() {
       final tracker = UsageTracker(now: () => DateTime.utc(2026, 9, 29));
       final providers = <AiProviderType, _FakeProvider>{
         AiProviderType.openRouter: _FakeProvider(const AiReply(text: 'first')),
-        AiProviderType.openCodeZen: _FakeProvider(
+        AiProviderType.groq: _FakeProvider(
           const AiReply(text: 'second', totalTokens: 10),
         ),
       };
@@ -44,7 +57,7 @@ void main() {
       expect(reply, const AiReply(text: 'first'));
       expect(providers[AiProviderType.openRouter]!.lastModel, 'first-model');
       expect(providers[AiProviderType.openRouter]!.calls, 1);
-      expect(providers[AiProviderType.openCodeZen]!.calls, 0);
+      expect(providers[AiProviderType.groq]!.calls, 0);
       expect((await tracker.usageFor(first)).requests, 1);
       expect((await tracker.usageFor(first)).tokens, 0);
     },
@@ -64,9 +77,7 @@ void main() {
     await tracker.record(tokenRoute, tokens: 5);
     final providers = <AiProviderType, _FakeProvider>{
       AiProviderType.openRouter: _FakeProvider(const AiReply(text: 'ok')),
-      AiProviderType.openCodeZen: _FakeProvider(
-        const AiReply(text: 'fallback'),
-      ),
+      AiProviderType.groq: _FakeProvider(const AiReply(text: 'fallback')),
     };
     final router = _router([first, second], providers, tracker);
 
@@ -76,7 +87,7 @@ void main() {
     );
     expect(reply.text, 'fallback');
     expect(providers[AiProviderType.openRouter]!.calls, 0);
-    expect(providers[AiProviderType.openCodeZen]!.calls, 1);
+    expect(providers[AiProviderType.groq]!.calls, 1);
     expect(await tracker.isUsedUpOrBlocked(tokenRoute), isTrue);
   });
 
@@ -88,9 +99,7 @@ void main() {
         const AiReply(text: ''),
         error: RateLimitException(retryAt: now.add(const Duration(minutes: 4))),
       ),
-      AiProviderType.openCodeZen: _FakeProvider(
-        const AiReply(text: 'fallback'),
-      ),
+      AiProviderType.groq: _FakeProvider(const AiReply(text: 'fallback')),
     };
     final router = _router([first, second], providers, tracker, now: () => now);
 
@@ -105,7 +114,7 @@ void main() {
       (await tracker.usageFor(first)).blockedUntil,
       now.add(const Duration(minutes: 4)),
     );
-    expect(providers[AiProviderType.openCodeZen]!.calls, 1);
+    expect(providers[AiProviderType.groq]!.calls, 1);
   });
 
   test('network errors stop routing', () async {
@@ -115,9 +124,7 @@ void main() {
         const AiReply(text: ''),
         error: const NetworkException(),
       ),
-      AiProviderType.openCodeZen: _FakeProvider(
-        const AiReply(text: 'must not run'),
-      ),
+      AiProviderType.groq: _FakeProvider(const AiReply(text: 'must not run')),
     };
 
     await expectLater(
@@ -127,7 +134,7 @@ void main() {
       ),
       throwsA(isA<NetworkException>()),
     );
-    expect(providers[AiProviderType.openCodeZen]!.calls, 0);
+    expect(providers[AiProviderType.groq]!.calls, 0);
   });
 
   test('all exhausted routes produce a reset time', () async {
