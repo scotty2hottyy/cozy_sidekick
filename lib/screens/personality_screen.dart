@@ -104,6 +104,25 @@ class _PersonalityScreenState extends State<PersonalityScreen> {
   }
 
   Future<void> _deletePersonality(Personality personality) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${personality.name}?'),
+        content: const Text("This can't be undone."),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     final next = _personalities
         .where((item) => item.id != personality.id)
         .toList();
@@ -276,6 +295,7 @@ class _PersonalityCard extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                 ),
               PopupMenuButton<String>(
+                key: ValueKey('personality-actions-${personality.id}'),
                 tooltip: 'Personality actions',
                 onSelected: (action) {
                   if (action == 'edit') onEdit();

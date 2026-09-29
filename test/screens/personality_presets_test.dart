@@ -60,6 +60,57 @@ void main() {
     expect((await store.loadPersonalities()).single.isDefault, isTrue);
   });
 
+  testWidgets('deleting a personality requires confirmation', (tester) async {
+    const captain = Personality(
+      id: 'comic-companion',
+      name: 'Comic Companion',
+      systemPrompt: 'Keep the jokes coming.',
+    );
+    final store = InMemoryPersonalityStore(
+      personalities: [...PersonalityService.defaultPersonalities, captain],
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: PersonalityScreen(personalityStore: store)),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(find.text(captain.name), findsOneWidget);
+    final actions = find.byKey(
+      const ValueKey('personality-actions-comic-companion'),
+    );
+    await tester.tap(actions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete Comic Companion?'), findsOneWidget);
+    expect(
+      (await store.loadPersonalities()).any((item) => item.id == captain.id),
+      isTrue,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(
+      (await store.loadPersonalities()).any((item) => item.id == captain.id),
+      isTrue,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('personality-actions-comic-companion')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect(
+      (await store.loadPersonalities()).any((item) => item.id == captain.id),
+      isFalse,
+    );
+  });
+
   testWidgets(
     'Cozy remains a large card and Curious appears only as a preset',
     (tester) async {
