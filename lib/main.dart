@@ -14,6 +14,7 @@ import 'services/provider_connection_service.dart';
 import 'services/personality_service.dart';
 import 'services/settings_service.dart';
 import 'services/speech_service.dart';
+import 'services/text_to_speech_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +44,7 @@ Future<void> main() async {
         providers: providers,
       ),
       speechService: DeviceSpeechService(),
+      textToSpeechService: DeviceTextToSpeechService(),
       settingsStore: settingsStore,
       personalityStore: personalityStore,
       keyStore: keyStore,

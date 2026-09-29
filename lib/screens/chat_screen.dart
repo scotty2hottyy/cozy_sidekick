@@ -15,6 +15,8 @@ import '../services/personality_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import '../services/speech_service.dart';
+import '../models/speech_settings.dart';
+import '../services/text_to_speech_service.dart';
 import '../widgets/chat_header.dart';
 import '../widgets/anchored_reply_sliver.dart';
 import '../widgets/message_bubble.dart';
@@ -28,6 +30,7 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.chatService,
     required this.speechService,
+    required this.textToSpeechService,
     required this.settingsStore,
     required this.personalityStore,
     required this.keyStore,
@@ -36,6 +39,7 @@ class ChatScreen extends StatefulWidget {
   });
   final ChatService chatService;
   final SpeechService speechService;
+  final TextToSpeechService textToSpeechService;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
@@ -66,6 +70,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool get _busy =>
       _isLoading || _isSending || _isClearing || _historyLoadFailed;
   MessageFormatting _formatting = const MessageFormatting();
+  SpeechSettings _speechSettings = const SpeechSettings();
   bool _showReasoning = false;
 
   /// Replies whose reasoning is open. They're kept here rather than in each
@@ -109,10 +114,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadChatSettings() async {
     final formatting = await widget.settingsStore.loadMessageFormatting();
     final showReasoning = await widget.settingsStore.loadShowReasoning();
+    final speechSettings = await widget.settingsStore.loadSpeechSettings();
     if (mounted) {
       setState(() {
         _formatting = formatting;
         _showReasoning = showReasoning;
+        _speechSettings = speechSettings;
       });
     }
   }
@@ -133,6 +140,8 @@ class _ChatScreenState extends State<ChatScreen> {
           settingsStore: widget.settingsStore,
           personalityStore: widget.personalityStore,
           keyStore: widget.keyStore,
+          speechService: widget.speechService,
+          textToSpeechService: widget.textToSpeechService,
           connectionTester: widget.connectionTester,
           modelLister: widget.modelLister,
         ),

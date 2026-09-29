@@ -15,6 +15,7 @@ import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/personality_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:cozy_sidekick/services/speech_service.dart';
+import 'package:cozy_sidekick/services/text_to_speech_service.dart';
 import 'package:cozy_sidekick/widgets/formatted_reply.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -418,6 +419,25 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Second saved')).dy),
     );
   });
+  testWidgets(
+    'Voice & Speech opens from Settings without starting the microphone',
+    (tester) async {
+      final speech = FakeSpeechService();
+      await tester.pumpWidget(_app(speechService: speech));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settingsButton')));
+      await tester.pumpAndSettle();
+      expect(find.text('Customize tone and instructions'), findsOneWidget);
+      await tester.ensureVisible(find.text('Voice & Speech'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Voice & Speech'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Voice & Speech'), findsOneWidget);
+      expect(speech.startCalls, 0);
+    },
+  );
+
   testWidgets(
     'cancel preserves history, confirmed clear survives screen restart',
     (tester) async {
@@ -1078,6 +1098,7 @@ CozySidekickApp _app({
       providers: providers,
     ),
     speechService: speechService ?? FakeSpeechService(),
+    textToSpeechService: FakeTextToSpeechService(),
     settingsStore: settings,
     personalityStore: personalities,
     keyStore: keys,
@@ -1206,6 +1227,7 @@ class FakeSpeechService implements SpeechService {
   ValueChanged<String>? _onFinalResult;
   ValueChanged<SpeechServiceState>? _onStateChanged;
   int stopCalls = 0;
+  int startCalls = 0;
   String? lastLocaleId;
   bool lastSendWhenDone = false;
 
@@ -1223,6 +1245,7 @@ class FakeSpeechService implements SpeechService {
     String? localeId,
     bool sendWhenDone = false,
   }) async {
+    startCalls++;
     _onText = onText;
     _onFinalResult = onFinalResult;
     _onStateChanged = onStateChanged;
@@ -1242,6 +1265,37 @@ class FakeSpeechService implements SpeechService {
     _state = SpeechServiceState.idle;
     _onStateChanged?.call(_state);
   }
+
+  @override
+  Future<void> dispose() async {}
+}
+
+class FakeTextToSpeechService implements TextToSpeechService {
+  List<SpeechVoice> availableVoices = const <SpeechVoice>[];
+  String? lastVoiceName;
+  String? lastVoiceLocale;
+  double? lastRate;
+  String? lastText;
+  int stopCalls = 0;
+
+  @override
+  Future<List<SpeechVoice>> voices() async => availableVoices;
+
+  @override
+  Future<void> speak(
+    String text, {
+    String? voiceName,
+    String? voiceLocale,
+    double rate = 0.5,
+  }) async {
+    lastText = text;
+    lastVoiceName = voiceName;
+    lastVoiceLocale = voiceLocale;
+    lastRate = rate;
+  }
+
+  @override
+  Future<void> stop() async => stopCalls++;
 
   @override
   Future<void> dispose() async {}
