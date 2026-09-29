@@ -54,6 +54,7 @@ class ChatService {
       messages: snapshot.length > 20
           ? snapshot.sublist(snapshot.length - 20)
           : snapshot,
+      model: await settingsStore.loadModel(selected),
     );
     final createdAt = DateTime.now();
     ChatMessage? message;

@@ -1,5 +1,6 @@
 import '../ai/ai_provider.dart';
 import '../models/chat_message.dart';
+import 'settings_service.dart';
 
 enum ConnectionTestStatus {
   success,
@@ -44,12 +45,15 @@ abstract interface class ConnectionTester {
   Future<ConnectionTestResult> testConnection(AiProviderType provider);
 }
 
+/// Tests a provider with the model chosen for it, the same one chat uses.
 class ProviderConnectionService implements ConnectionTester {
   ProviderConnectionService({
     required Map<AiProviderType, AiProvider> providers,
+    required this.settingsStore,
   }) : _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
 
   final Map<AiProviderType, AiProvider> _providers;
+  final AppSettingsStore settingsStore;
 
   @override
   Future<ConnectionTestResult> testConnection(AiProviderType provider) async {
@@ -63,6 +67,7 @@ class ProviderConnectionService implements ConnectionTester {
       await implementation.sendChat(
         systemPrompt: 'This is a connection test.',
         messages: <ChatMessage>[ChatMessage.user('Reply with OK.')],
+        model: await settingsStore.loadModel(provider),
       );
       return const ConnectionTestResult(ConnectionTestStatus.success);
     } on MissingApiKeyException {

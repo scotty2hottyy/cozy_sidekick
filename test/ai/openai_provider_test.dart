@@ -83,4 +83,33 @@ void main() {
       throwsA(isA<InvalidApiKeyException>()),
     );
   });
+
+  test('asks the chosen model and lists models with the key', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.openAi, 'test-key');
+    final requests = <http.Request>[];
+    final provider = OpenAiProvider(
+      keyStore: keys,
+      client: MockClient((request) async {
+        requests.add(request);
+        return request.method == 'GET'
+            ? http.Response(
+                '{"data":[{"id":"gpt-6-sol"},{"id":"whisper-1"}]}',
+                200,
+              )
+            : http.Response('{"choices":[{"message":{"content":"Hi"}}]}', 200);
+      }),
+    );
+    await provider.sendChat(
+      systemPrompt: 'system',
+      messages: <ChatMessage>[ChatMessage.user('Hi')],
+      model: 'gpt-6-sol',
+    );
+    final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
+    expect(body['model'], 'gpt-6-sol');
+
+    expect(await provider.listModels(), <String>['gpt-6-sol']);
+    expect(requests.last.url.toString(), 'https://api.openai.com/v1/models');
+    expect(requests.last.headers['authorization'], 'Bearer test-key');
+  });
 }

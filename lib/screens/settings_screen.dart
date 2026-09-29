@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_key_store.dart';
+import '../services/model_list_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/personality_service.dart';
 import '../services/settings_service.dart';
@@ -17,6 +18,7 @@ class SettingsScreen extends StatelessWidget {
     required this.personalityStore,
     required this.keyStore,
     required this.connectionTester,
+    required this.modelLister,
     required this.onClearChat,
   });
   final Future<void> Function() onClearChat;
@@ -24,6 +26,7 @@ class SettingsScreen extends StatelessWidget {
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
   final ConnectionTester connectionTester;
+  final ModelLister modelLister;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -39,8 +42,11 @@ class SettingsScreen extends StatelessWidget {
               context,
               Icons.route_rounded,
               'AI Settings',
-              'Text-chat provider and reasoning',
-              destination: AiSettingsScreen(settingsStore: settingsStore),
+              'Provider, model and reasoning',
+              destination: AiSettingsScreen(
+                settingsStore: settingsStore,
+                modelLister: modelLister,
+              ),
             ),
             _row(
               context,

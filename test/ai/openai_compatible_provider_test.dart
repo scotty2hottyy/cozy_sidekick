@@ -170,6 +170,214 @@ void main() {
     });
   });
 
+  test('asks the model it is given, or its default', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.openRouter, 'key');
+    final asked = <Object?>[];
+    final provider = OpenAiCompatibleProvider(
+      type: AiProviderType.openRouter,
+      baseUrl: 'https://example.com/v1',
+      model: 'default-model',
+      keyStore: keys,
+      client: MockClient.streaming((request, bodyStream) async {
+        final body = jsonDecode(
+          await bodyStream.bytesToString(),
+        ) as Map<String, dynamic>;
+        asked.add(body['model']);
+        return http.StreamedResponse(
+          Stream<List<int>>.value(
+            utf8.encode(
+              body['stream'] == true
+                  ? _sse(<Map<String, Object?>>[
+                      <String, Object?>{'content': 'Hi'},
+                    ])
+                  : '{"choices":[{"message":{"content":"Hi"}}]}',
+            ),
+          ),
+          200,
+        );
+      }),
+    );
+    final hi = <ChatMessage>[ChatMessage.user('Hi')];
+
+    await provider.sendChat(systemPrompt: 'system', messages: hi);
+    await provider.sendChat(
+      systemPrompt: 'system',
+      messages: hi,
+      model: 'chosen-model',
+    );
+    await provider.streamChat(systemPrompt: 'system', messages: hi).drain();
+    await provider
+        .streamChat(systemPrompt: 'system', messages: hi, model: 'chosen-model')
+        .drain();
+
+    expect(asked, <String>[
+      'default-model',
+      'chosen-model',
+      'default-model',
+      'chosen-model',
+    ]);
+  });
+
+  group('model list', () {
+    late http.Request listed;
+    var requests = 0;
+
+    /// A provider whose `/models` lists [models].
+    Future<OpenAiCompatibleProvider> listing(
+      List<Map<String, Object?>> models, {
+      int statusCode = 200,
+      bool withKey = true,
+      bool publicModelList = false,
+    }) async {
+      final keys = InMemoryApiKeyStore();
+      if (withKey) await keys.save(AiProviderType.openAi, 'key');
+      return OpenAiCompatibleProvider(
+        type: AiProviderType.openAi,
+        baseUrl: 'https://example.com/v1/',
+        model: 'test-model',
+        keyStore: keys,
+        publicModelList: publicModelList,
+        client: MockClient((request) async {
+          requests++;
+          listed = request;
+          return http.Response(
+            jsonEncode(<String, Object?>{'object': 'list', 'data': models}),
+            statusCode,
+          );
+        }),
+      );
+    }
+
+    List<Map<String, Object?>> ids(List<String> ids) => <Map<String, Object?>>[
+      for (final id in ids) <String, Object?>{'id': id, 'object': 'model'},
+    ];
+
+    test('lists the chat models at /models, sorted', () async {
+      final provider = await listing(
+        ids(<String>[
+          'gpt-6-sol',
+          'gpt-6-luna',
+          'gpt-6-luna',
+          'gpt-6-astra',
+          'text-embedding-3-small',
+          'whisper-1',
+          'gpt-4o-transcribe',
+          'tts-1-hd',
+          'gpt-4o-mini-tts',
+          'gpt-4o-audio-preview',
+          'gpt-realtime-2',
+          'gpt-live-1',
+          'dall-e-3',
+          'gpt-image-2.5-flare',
+          'sora-2',
+          'omni-moderation-latest',
+          'computer-use-preview',
+          'gpt-5-codex',
+          'babbage-002',
+          'davinci-002',
+        ]),
+      );
+      expect(await provider.listModels(), <String>[
+        'gpt-6-astra',
+        'gpt-6-luna',
+        'gpt-6-sol',
+      ]);
+      expect(listed.method, 'GET');
+      expect(listed.url.toString(), 'https://example.com/v1/models');
+      expect(listed.headers['authorization'], 'Bearer key');
+    });
+
+    test('leaves out the models Groq has turned off', () async {
+      final provider = await listing(<Map<String, Object?>>[
+        <String, Object?>{'id': 'openai/gpt-oss-20b', 'active': true},
+        <String, Object?>{
+          'id': 'meta-llama/llama-4-scout-17b-16e-instruct',
+          'active': true,
+        },
+        <String, Object?>{'id': 'llama-3.3-70b-versatile', 'active': false},
+        <String, Object?>{'id': 'whisper-large-v3-turbo', 'active': true},
+        <String, Object?>{'id': 'canopylabs/orpheus-v1-english'},
+        <String, Object?>{'id': 'meta-llama/llama-prompt-guard-2-86m'},
+      ]);
+      expect(await provider.listModels(), <String>[
+        'meta-llama/llama-4-scout-17b-16e-instruct',
+        'openai/gpt-oss-20b',
+      ]);
+    });
+
+    test('goes by what OpenRouter says a model writes', () async {
+      Map<String, Object?> model(String id, List<String> outputs) =>
+          <String, Object?>{
+            'id': id,
+            'architecture': <String, Object?>{'output_modalities': outputs},
+          };
+      final provider = await listing(<Map<String, Object?>>[
+        model('openai/gpt-6-luna', <String>['text']),
+        model('qwen/qwen3.8-27b:free', <String>['text']),
+        // It has "image" in its name, but it writes text too.
+        model('google/gemini-3.1-flash-lite-image', <String>['image', 'text']),
+        model('example/pictures-only', <String>['image']),
+        // Batch entries only work through OpenRouter's Batch API.
+        model('openai/gpt-6-luna:batch', <String>['text']),
+      ]);
+      expect(await provider.listModels(), <String>[
+        'google/gemini-3.1-flash-lite-image',
+        'openai/gpt-6-luna',
+        'qwen/qwen3.8-27b:free',
+      ]);
+    });
+
+    test('a public list is read without a key', () async {
+      final provider = await listing(
+        ids(<String>['openrouter/free']),
+        withKey: false,
+        publicModelList: true,
+      );
+      expect(await provider.listModels(), <String>['openrouter/free']);
+      expect(listed.headers.containsKey('authorization'), isFalse);
+    });
+
+    test('a list that needs a key fails before any request', () async {
+      requests = 0;
+      final provider = await listing(
+        ids(<String>['gpt-6-luna']),
+        withKey: false,
+      );
+      await expectLater(
+        provider.listModels(),
+        throwsA(isA<MissingApiKeyException>()),
+      );
+      expect(requests, 0);
+    });
+
+    test('a list without chat models is a bad response', () async {
+      for (final models in <List<Map<String, Object?>>>[
+        <Map<String, Object?>>[],
+        ids(<String>['whisper-1', 'text-embedding-3-small']),
+        <Map<String, Object?>>[
+          <String, Object?>{'id': ''},
+          <String, Object?>{'object': 'model'},
+        ],
+      ]) {
+        final provider = await listing(models);
+        await expectLater(
+          provider.listModels(),
+          throwsA(isA<BadResponseException>()),
+          reason: '$models',
+        );
+      }
+    });
+
+    test('HTTP errors keep their usual meaning', () async {
+      final provider = await listing(ids(<String>[]), statusCode: 401);
+      await expectLater(
+        provider.listModels(),
+        throwsA(isA<InvalidApiKeyException>()),
+      );
+    });
+  });
+
   group('streaming', () {
     late String sentBody;
     var requests = 0;

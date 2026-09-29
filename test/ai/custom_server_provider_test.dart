@@ -151,4 +151,28 @@ void main() {
       );
     },
   );
+
+  test('ignores a model, because the server picks its own', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.customServer, 'token');
+    late http.Request captured;
+    final provider = CustomServerProvider(
+      keyStore: keys,
+      settingsStore: InMemorySettingsStore(
+        customServerBaseUrl: 'https://example.com',
+      ),
+      client: MockClient((request) async {
+        captured = request;
+        return http.Response('{"message":"hi"}', 200);
+      }),
+    );
+    await provider.sendChat(
+      systemPrompt: 'system',
+      messages: <ChatMessage>[ChatMessage.user('hello')],
+      model: 'gpt-6-sol',
+    );
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+    expect(body.keys, <String>['messages']);
+    expect(captured.body, isNot(contains('gpt-6-sol')));
+  });
 }

@@ -12,19 +12,31 @@ Future<Map<String, dynamic>> postJson(
   required Map<String, String> headers,
   required Map<String, Object?> body,
   Duration timeout = const Duration(seconds: 60),
-}) async {
+}) => _requestJson(
+  () => client.post(
+    url,
+    headers: <String, String>{'Content-Type': 'application/json', ...headers},
+    body: jsonEncode(body),
+  ),
+  timeout,
+);
+
+/// Gets [url] and returns its JSON object, with the same errors as
+/// [postJson].
+Future<Map<String, dynamic>> getJson(
+  http.Client client,
+  Uri url, {
+  required Map<String, String> headers,
+  Duration timeout = const Duration(seconds: 60),
+}) => _requestJson(() => client.get(url, headers: headers), timeout);
+
+Future<Map<String, dynamic>> _requestJson(
+  Future<http.Response> Function() send,
+  Duration timeout,
+) async {
   final http.Response response;
   try {
-    response = await client
-        .post(
-          url,
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-            ...headers,
-          },
-          body: jsonEncode(body),
-        )
-        .timeout(timeout);
+    response = await send().timeout(timeout);
   } on TimeoutException {
     throw const ProviderTimeoutException();
   } on http.ClientException {
@@ -109,7 +121,7 @@ Map<String, dynamic> _decodeEvent(String data) {
 /// it's a success.
 void _checkStatus(http.Response response) {
   final code = response.statusCode;
-  if (code == 403 || code == 404) {
+  if (code == 400 || code == 403 || code == 404) {
     final modelError = _modelNotAvailable(response);
     if (modelError != null) throw modelError;
   }
@@ -121,18 +133,36 @@ void _checkStatus(http.Response response) {
   }
 }
 
-/// OpenAI sends `model_not_found` as a 403 when the project's model allowlist
-/// blocks the model, and as a 404 when the model ID is unknown. Other
-/// providers send other bodies, or none, so anything else returns null.
+/// The error for a response that says the model can't be used, or null for
+/// any other response.
+///
+/// - OpenAI and Groq send `"code": "model_not_found"`. OpenAI sends it as a
+///   403 when the project's model allowlist blocks the model, and both send
+///   it as a 404 when the model ID is unknown. Groq sends
+///   `model_decommissioned` as a 400 for a model it has retired.
+/// - OpenRouter's codes are numbers. It sends a 400 saying the ID "is not a
+///   valid model ID", and a 404 when the model doesn't exist or has no
+///   endpoint the account can use, for example because of its privacy
+///   settings.
 ModelNotAvailableException? _modelNotAvailable(http.Response response) {
+  final status = response.statusCode;
   try {
     final decoded = jsonDecode(response.body);
     final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
-    if (error is Map<String, dynamic> && error['code'] == 'model_not_found') {
-      // OpenAI's message names the model and project, which helps in logs.
-      final message = error['message'];
+    if (error is! Map<String, dynamic>) return null;
+    final code = error['code'];
+    final message = error['message'];
+    final isModelError = switch (code) {
+      'model_not_found' || 'model_decommissioned' => true,
+      400 => message is String && message.contains('not a valid model ID'),
+      404 => status == 404,
+      _ => false,
+    };
+    if (isModelError) {
+      // The message names the model (and OpenAI's the project), which helps
+      // in logs.
       return ModelNotAvailableException(
-        'HTTP ${response.statusCode} model_not_found'
+        'HTTP $status${code is String ? ' $code' : ''}'
         '${message is String ? ': $message' : ''}',
       );
     }
