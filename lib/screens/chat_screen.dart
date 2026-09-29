@@ -509,6 +509,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ? AiSettingsScreen(
           settingsStore: widget.settingsStore,
           modelLister: widget.modelLister,
+          keyStore: widget.keyStore,
         )
       : ApiCredentialsScreen(
           settingsStore: widget.settingsStore,

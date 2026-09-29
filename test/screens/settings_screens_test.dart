@@ -26,6 +26,75 @@ void main() {
     expect(settings.selectedProvider, AiProviderType.groq);
   });
 
+  testWidgets('auto-routing reveals routes and disables provider selection', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore();
+    await tester.pumpWidget(_aiSettings(settings));
+    await tester.pumpAndSettle();
+
+    expect(settings.autoRouteEnabled, isFalse);
+    expect(
+      find.byKey(const ValueKey('quota-route-openrouter-free')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const Key('autoRouteSwitch')));
+    await tester.pumpAndSettle();
+
+    expect(settings.autoRouteEnabled, isTrue);
+    expect(
+      tester
+          .widget<DropdownButtonFormField<AiProviderType>>(
+            find.byKey(const Key('providerDropdown')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.byKey(const ValueKey('quota-route-openrouter-free')),
+      findsOneWidget,
+    );
+    expect(find.text('OpenCode Zen'), findsOneWidget);
+  });
+
+  testWidgets('editing a route saves its model and daily limit', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore();
+    await settings.saveAutoRouteEnabled(true);
+    await tester.pumpWidget(_aiSettings(settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('openrouter-free')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'custom/free');
+    await tester.enterText(find.byType(TextFormField).last, '7');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+
+    expect(settings.quotaRoutes.first.model, 'custom/free');
+    expect(settings.quotaRoutes.first.dailyLimit, 7);
+  });
+
+  testWidgets('OpenAI quota route requires explicit warning confirmation', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore();
+    await settings.saveAutoRouteEnabled(true);
+    await tester.pumpWidget(_aiSettings(settings));
+    await tester.pumpAndSettle();
+    final openAiSwitch = find.byKey(const ValueKey('quota-route-openai-mini'));
+
+    await tester.tap(openAiSwitch);
+    await tester.pumpAndSettle();
+    expect(find.text('OpenAI free tokens can be billed'), findsOneWidget);
+    expect(settings.quotaRoutes.last.enabled, isFalse);
+
+    await tester.tap(find.text('Turn on'));
+    await tester.pumpAndSettle();
+    expect(settings.quotaRoutes.last.enabled, isTrue);
+  });
+
   testWidgets('show reasoning is off by default and is saved', (tester) async {
     final settings = InMemorySettingsStore();
     Future<void> open() async {
@@ -393,6 +462,7 @@ MaterialApp _aiSettings(AppSettingsStore settings, [ModelLister? lister]) =>
       home: AiSettingsScreen(
         settingsStore: settings,
         modelLister: lister ?? _FakeModelLister(),
+        keyStore: InMemoryApiKeyStore(),
       ),
     );
 
