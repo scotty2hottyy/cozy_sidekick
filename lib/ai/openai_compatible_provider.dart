@@ -26,11 +26,13 @@ class OpenAiCompatibleProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async {
     final json = await postJson(
       _client,
       _chatUrl,
       headers: await _headers(),
+      abortTrigger: abortTrigger,
       body: buildRequestBody(systemPrompt, messages),
     );
     return parseReply(json);
@@ -40,11 +42,13 @@ class OpenAiCompatibleProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async* {
     final events = postEventStream(
       _client,
       _chatUrl,
       headers: await _headers(),
+      abortTrigger: abortTrigger,
       body: <String, Object?>{
         ...buildRequestBody(systemPrompt, messages),
         'stream': true,

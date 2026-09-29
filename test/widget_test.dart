@@ -19,6 +19,76 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final partial in [false, true]) {
+    testWidgets(
+      'Stop ${partial ? "keeps partial text" : "before first chunk"} and permits another request',
+      (tester) async {
+        final history = FakeChatHistoryStore();
+        final provider = _StreamingProvider();
+        await tester.pumpWidget(
+          _app(conversationStore: history, provider: provider),
+        );
+        await tester.pumpAndSettle();
+        await _startMessage(tester, 'First question');
+        if (partial) {
+          provider.add('Partial answer');
+          await tester.pump(Duration.zero);
+        }
+        final oldStream = provider._reply;
+        await tester.tap(find.byKey(const Key('stopGenerationButton')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('stopGenerationButton')), findsNothing);
+        expect(
+          history.messages.map((m) => m.text),
+          partial ? ['First question', 'Partial answer'] : ['First question'],
+        );
+        expect(
+          tester
+              .widget<TextField>(find.byKey(const Key('messageInput')))
+              .enabled,
+          isTrue,
+        );
+        await _startMessage(tester, 'Second question');
+        oldStream.add(const AiReply(text: 'Unwanted late answer'));
+        unawaited(oldStream.close());
+        await tester.pump(Duration.zero);
+        expect(find.text('Unwanted late answer'), findsNothing);
+        provider.add('Second answer');
+        await tester.pump(Duration.zero);
+        await provider.finish();
+        await tester.pumpAndSettle();
+        expect(history.messages.last.text, 'Second answer');
+        expect(
+          history.messages.where((m) => m.text == 'Partial answer').length,
+          partial ? 1 : 0,
+        );
+      },
+    );
+  }
+  testWidgets('Stop during reasoning does not save an empty assistant reply', (
+    tester,
+  ) async {
+    final history = FakeChatHistoryStore();
+    final provider = _StreamingProvider();
+    await tester.pumpWidget(
+      _app(
+        conversationStore: history,
+        provider: provider,
+        settingsStore: InMemorySettingsStore(showReasoning: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _startMessage(tester, 'Think');
+    provider.add('', reasoning: 'Working on it');
+    await tester.pump(Duration.zero);
+    await tester.tap(find.byKey(const Key('stopGenerationButton')));
+    await tester.pumpAndSettle();
+    expect(history.messages.single.text, 'Think');
+    expect(find.text('Working on it'), findsNothing);
+    unawaited(provider.finish());
+    await tester.pump();
+  });
+
   for (final fails in [false, true]) {
     testWidgets(
       'reading position survives reasoning growth and ${fails ? "failure" : "completion"}',
@@ -414,7 +484,7 @@ void main() {
     await tester.pump();
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('Sidekick is typing…'), findsOneWidget);
-    expect(_button(tester, 'sendButton').onPressed, isNull);
+    expect(_button(tester, 'stopGenerationButton').onPressed, isNotNull);
     await tester.pumpAndSettle();
     expect(find.text('Provider: Hello'), findsOneWidget);
     expect(find.text('Sidekick is typing…'), findsNothing);
@@ -904,8 +974,7 @@ void main() {
       await tester.pump(Duration.zero);
       expect(provider.listening, isTrue);
 
-      // An `await for` in an async* function only notices the cancel when
-      // the next piece arrives, so that's when the request stops.
+      // Leaving cancels promptly; a later piece cannot update saved history.
       await tester.pumpWidget(const SizedBox());
       provider.add('Half of a sentence');
       await tester.pump(Duration.zero);
@@ -966,6 +1035,7 @@ class _FakeProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async {
     await Future<void>.delayed(const Duration(seconds: 1));
     return AiReply(
@@ -978,6 +1048,7 @@ class _FakeProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async* {
     yield await sendChat(systemPrompt: systemPrompt, messages: messages);
   }
@@ -993,6 +1064,7 @@ class _FlakyProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async {
     calls++;
     if (errors.isNotEmpty) throw errors.removeAt(0);
@@ -1003,6 +1075,7 @@ class _FlakyProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async* {
     yield await sendChat(systemPrompt: systemPrompt, messages: messages);
   }
@@ -1032,12 +1105,14 @@ class _StreamingProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 
   @override
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) {
     calls++;
     _reply = StreamController<AiReply>();

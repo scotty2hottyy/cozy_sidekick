@@ -9,6 +9,35 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('stream request carries an abort signal and cancellation ends a waiting stream', () async {
+    final abort = Completer<void>();
+    final started = Completer<void>();
+    final body = StreamController<List<int>>();
+    final client = MockClient.streaming((request, _) async {
+      expect(request, isA<http.AbortableRequest>());
+      final trigger = (request as http.AbortableRequest).abortTrigger;
+      expect(trigger, same(abort.future));
+      trigger!.then((_) {
+        body.addError(http.RequestAbortedException());
+        body.close();
+      });
+      started.complete();
+      return http.StreamedResponse(body.stream, 200);
+    });
+    final stream = postEventStream(
+      client,
+      Uri.parse('https://example.com'),
+      headers: {},
+      body: {},
+      abortTrigger: abort.future,
+    );
+    final done = expectLater(stream, emitsError(isA<NetworkException>()));
+    await started.future;
+    abort.complete();
+    await done;
+    client.close();
+  });
+
   test('returns a decoded JSON object', () async {
     final result = await postJson(
       MockClient((_) async => http.Response('{"ok":true}', 200)),

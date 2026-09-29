@@ -197,11 +197,13 @@ class _OkProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async => const AiReply(text: 'OK');
 
   @override
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) => Stream<AiReply>.value(const AiReply(text: 'OK'));
 }

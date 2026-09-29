@@ -328,12 +328,14 @@ class _FakeProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 
   @override
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async* {
     beforeReply?.call();
     lastMessages = messages;
@@ -351,6 +353,7 @@ class _ControlledProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) {
     context = messages;
     started.complete();
@@ -361,5 +364,6 @@ class _ControlledProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) => streamChat(systemPrompt: systemPrompt, messages: messages).last;
 }

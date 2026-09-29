@@ -216,3 +216,8 @@ Validation:
 - The reversed chat viewport separates the live reply into an exactly measured sliver ahead of lazy message history. AnchoredReplySliver compensates for live extent changes when the user has scrolled away, preserving the message being read without relying on estimated list extents.
 - A Jump to latest button appears more than 40 pixels from the latest end. Tapping returns to offset zero and resumes following. Switching chats resets scroll state. Existing manual reasoning expansion retains its own scroll adjustment.
 - Widget tests measure old messages' on-screen positions through streaming answer/reasoning growth, completion/failure, jump-to-latest, and conversation changes.
+
+### Stop generation
+- During a request, Send becomes a Stop generating button. Stop signals a request-specific GenerationControl, aborts supported HTTP requests, and ends the UI stream promptly even before the first chunk.
+- Received answer text (with reasoning when present) is saved once in the originating conversation. Stopping before answer text leaves only the user message. Late chunks from stopped requests cannot enter subsequent requests.
+- AiProvider sendChat/streamChat now accept optional abortTrigger; HTTP streaming and custom-server requests use AbortableRequest when supplied. Provider implementations/fakes must accept this optional parameter.

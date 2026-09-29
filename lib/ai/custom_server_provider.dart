@@ -21,6 +21,7 @@ class CustomServerProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async {
     final baseUrl = await settingsStore.loadCustomServerBaseUrl();
     if (!SettingsService.isValidBaseUrl(baseUrl)) {
@@ -37,6 +38,7 @@ class CustomServerProvider implements AiProvider {
       _client,
       Uri.parse('$base/chat'),
       headers: <String, String>{'Authorization': 'Bearer $token'},
+      abortTrigger: abortTrigger,
       body: <String, Object?>{
         'messages': <Map<String, String>>[
           <String, String>{'role': 'system', 'content': systemPrompt},
@@ -69,7 +71,12 @@ class CustomServerProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async* {
-    yield await sendChat(systemPrompt: systemPrompt, messages: messages);
+    yield await sendChat(
+      systemPrompt: systemPrompt,
+      messages: messages,
+      abortTrigger: abortTrigger,
+    );
   }
 }

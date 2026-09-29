@@ -11,20 +11,28 @@ Future<Map<String, dynamic>> postJson(
   Uri url, {
   required Map<String, String> headers,
   required Map<String, Object?> body,
+  Future<void>? abortTrigger,
   Duration timeout = const Duration(seconds: 60),
 }) async {
   final http.Response response;
   try {
-    response = await client
-        .post(
-          url,
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-            ...headers,
-          },
-          body: jsonEncode(body),
-        )
-        .timeout(timeout);
+    if (abortTrigger == null) {
+      response = await client
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json', ...headers},
+            body: jsonEncode(body),
+          )
+          .timeout(timeout);
+    } else {
+      final request =
+          http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
+            ..headers.addAll({'Content-Type': 'application/json', ...headers})
+            ..body = jsonEncode(body);
+      response = await http.Response.fromStream(
+        await client.send(request).timeout(timeout),
+      ).timeout(timeout);
+    }
   } on TimeoutException {
     throw const ProviderTimeoutException();
   } on http.ClientException {
@@ -53,9 +61,10 @@ Stream<Map<String, dynamic>> postEventStream(
   Uri url, {
   required Map<String, String> headers,
   required Map<String, Object?> body,
+  Future<void>? abortTrigger,
   Duration timeout = const Duration(seconds: 60),
 }) async* {
-  final request = http.Request('POST', url)
+  final request = http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
     ..headers.addAll(<String, String>{
       'Content-Type': 'application/json',
       ...headers,

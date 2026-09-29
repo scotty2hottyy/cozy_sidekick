@@ -8,12 +8,16 @@ class MessageComposer extends StatefulWidget {
     required this.controller,
     required this.onSend,
     required this.onMicrophoneTap,
+    this.onStop,
+    this.isGenerating = false,
     this.enabled = true,
     this.isListening = false,
   });
   final TextEditingController controller;
   final ValueChanged<String> onSend;
   final VoidCallback onMicrophoneTap;
+  final VoidCallback? onStop;
+  final bool isGenerating;
   final bool enabled;
   final bool isListening;
 
@@ -109,19 +113,31 @@ class _MessageComposerState extends State<MessageComposer> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filled(
-                key: const Key('sendButton'),
-                onPressed:
-                    widget.enabled && widget.controller.text.trim().isNotEmpty
-                    ? _submit
-                    : null,
-                icon: const Icon(Icons.send_rounded),
-                tooltip: 'Send',
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(52, 52),
-                  iconSize: 27,
+              if (widget.isGenerating)
+                IconButton.filled(
+                  key: const Key('stopGenerationButton'),
+                  tooltip: 'Stop generating',
+                  onPressed: widget.onStop,
+                  icon: const Icon(Icons.stop_rounded),
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(52, 52),
+                    iconSize: 27,
+                  ),
                 ),
-              ),
+              if (!widget.isGenerating)
+                IconButton.filled(
+                  key: const Key('sendButton'),
+                  onPressed:
+                      widget.enabled && widget.controller.text.trim().isNotEmpty
+                      ? _submit
+                      : null,
+                  icon: const Icon(Icons.send_rounded),
+                  tooltip: 'Send',
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(52, 52),
+                    iconSize: 27,
+                  ),
+                ),
             ],
           ),
         ],

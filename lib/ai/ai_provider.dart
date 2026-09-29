@@ -51,6 +51,7 @@ abstract interface class AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   });
 
   /// The reply as it's written. Each event is the whole reply so far, and
@@ -58,6 +59,7 @@ abstract interface class AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   });
 }
 

@@ -9,6 +9,7 @@ import '../models/conversation.dart';
 import '../models/message_formatting.dart';
 import '../services/api_key_store.dart';
 import '../services/chat_service.dart';
+import '../services/generation_control.dart';
 import '../services/personality_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
@@ -50,6 +51,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _followingLatest = true;
   int _streamLayoutRevision = 0;
   static const double _latestThreshold = 40;
+  GenerationControl? _generation;
+  bool _isStopping = false;
   bool _isSending = false;
   bool _isLoading = true;
   bool _isClearing = false;
@@ -377,15 +380,28 @@ class _ChatScreenState extends State<ChatScreen> {
     _requestReply();
   }
 
+  void _stopGeneration() {
+    if (!_isSending || _isStopping) return;
+    setState(() => _isStopping = true);
+    _generation?.stop();
+  }
+
   void _requestReply() {
+    final control = GenerationControl();
+    _generation = control;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
       _isSending = true;
+      _isStopping = false;
       _liveReasoningExpanded = false;
     });
     final originId = widget.chatService.conversations.activeId;
     _replySubscription = widget.chatService
-        .streamReply(List<ChatMessage>.of(_messages), conversationId: originId)
+        .streamReply(
+          List<ChatMessage>.of(_messages),
+          conversationId: originId,
+          control: control,
+        )
         .listen(
           (reply) {
             if (mounted &&
@@ -414,12 +430,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _finishReply() => setState(() {
     final reply = _liveReply;
-    if (reply != null) {
+    if (reply != null &&
+        !(_generation?.isStopped == true && reply.text.trim().isEmpty)) {
       _messages.add(reply);
       if (_liveReasoningExpanded) _expandedReasoning.add(reply);
     }
+    if (_generation?.isStopped == true &&
+        (reply == null || reply.text.trim().isEmpty)) {
+      _streamLayoutRevision++;
+    }
     _liveReply = null;
     _replySubscription = null;
+    _generation = null;
+    _isStopping = false;
     _isSending = false;
   });
 
@@ -430,6 +453,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _streamLayoutRevision++;
       _liveReply = null;
       _replySubscription = null;
+      _generation = null;
+      _isStopping = false;
       _isSending = false;
     });
     if (error is AiProviderException) {
@@ -521,8 +546,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    // The request itself stops when its next piece arrives, because the
-    // `await for` loops under this stream only notice a cancel then.
+    // Leaving the screen aborts transport but does not commit unfinished text.
+    _generation?.stop(discardPartial: true);
     unawaited(_replySubscription?.cancel());
     _chatScroll.dispose();
     _composerController.dispose();
@@ -695,6 +720,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 controller: _composerController,
                 onSend: _send,
                 onMicrophoneTap: _toggleSpeech,
+                isGenerating: _isSending,
+                onStop: _isStopping ? null : _stopGeneration,
                 enabled: !_busy,
                 isListening: _speechState == SpeechServiceState.listening,
               ),

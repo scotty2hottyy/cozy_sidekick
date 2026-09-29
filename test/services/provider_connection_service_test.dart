@@ -42,6 +42,7 @@ class _ResultProvider implements AiProvider {
   Future<AiReply> sendChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) async {
     if (error != null) throw error!;
     return const AiReply(text: 'OK');
@@ -51,6 +52,7 @@ class _ResultProvider implements AiProvider {
   Stream<AiReply> streamChat({
     required String systemPrompt,
     required List<ChatMessage> messages,
+    Future<void>? abortTrigger,
   }) => Stream<AiReply>.fromFuture(
     sendChat(systemPrompt: systemPrompt, messages: messages),
   );
