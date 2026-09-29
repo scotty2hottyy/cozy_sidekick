@@ -1,4 +1,5 @@
 import 'package:cozy_sidekick/ai/ai_provider.dart';
+import 'package:cozy_sidekick/ai/groq_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
 import 'package:cozy_sidekick/screens/ai_settings_screen.dart';
@@ -9,6 +10,8 @@ import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   testWidgets('provider selection is saved', (tester) async {
@@ -19,9 +22,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('providerDropdown')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Custom Server').last);
+    await tester.tap(find.text('Groq').last);
     await tester.pumpAndSettle();
-    expect(settings.selectedProvider, AiProviderType.customServer);
+    expect(settings.selectedProvider, AiProviderType.groq);
   });
 
   testWidgets('show reasoning is off by default and is saved', (tester) async {
@@ -93,6 +96,56 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('test-customServer')));
     await tester.pumpAndSettle();
     expect(find.text('Connection successful'), findsOneWidget);
+  });
+
+  testWidgets('Groq credential uses the existing save and test controls', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final keys = InMemoryApiKeyStore();
+    var requests = 0;
+    final connectionTester = ProviderConnectionService(
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.groq: GroqProvider(
+          keyStore: keys,
+          client: MockClient((_) async {
+            requests++;
+            return http.Response(
+              '{"choices":[{"message":{"content":"OK"}}]}',
+              200,
+            );
+          }),
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ApiCredentialsScreen(
+          settingsStore: InMemorySettingsStore(),
+          keyStore: keys,
+          connectionTester: connectionTester,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Groq'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('credential-groq')),
+      '  groq-key  ',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('save-groq')));
+    await tester.pumpAndSettle();
+    expect(await keys.read(AiProviderType.groq), 'groq-key');
+
+    await tester.tap(find.byKey(const ValueKey<String>('test-groq')));
+    await tester.pumpAndSettle();
+    expect(find.text('Connection successful'), findsOneWidget);
+    expect(requests, 1);
   });
 
   testWidgets('appearance switches are saved and depend on each other', (

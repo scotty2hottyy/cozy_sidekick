@@ -136,8 +136,8 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// Splits [content] into the answer and the model's reasoning.
   ///
   /// The reasoning is [reasoning] when the API sent it separately, as
-  /// `reasoning` (OpenRouter, Ollama, vLLM) or `reasoning_content` (xAI,
-  /// llama.cpp and DeepSeek-style APIs). Otherwise it's everything before the
+  /// `reasoning` (OpenRouter, Ollama, vLLM) or `reasoning_content` (llama.cpp
+  /// and DeepSeek-style APIs). Otherwise it's everything before the
   /// last `</think>` in [content], without a leading `<think>`. Some Qwen3
   /// models send only the closing tag.
   static AiReply _withReasoning(String content, String? reasoning) {
