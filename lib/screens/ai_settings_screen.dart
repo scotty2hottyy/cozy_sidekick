@@ -149,7 +149,6 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _reorderRoutes(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex--;
     final routes = List<QuotaRoute>.of(_routes);
     final moved = routes.removeAt(oldIndex);
     routes.insert(newIndex, moved);
@@ -322,7 +321,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   buildDefaultDragHandles: false,
-                  onReorder: _reorderRoutes,
+                  onReorderItem: _reorderRoutes,
                   children: <Widget>[
                     for (var index = 0; index < _routes.length; index++)
                       ListTile(

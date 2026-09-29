@@ -5,18 +5,16 @@ import 'ai_provider.dart';
 
 class AutoRouter implements AiProvider {
   AutoRouter({
-    required Map<AiProviderType, AiProvider> providers,
-    required Future<List<QuotaRoute>> Function() loadRoutes,
+    required this.providers,
+    required this.loadRoutes,
     required this.usageTracker,
-    DateTime Function()? now,
-  }) : _providers = providers,
-       _loadRoutes = loadRoutes,
-       _now = now ?? DateTime.now;
+    this.now = DateTime.now,
+  });
 
-  final Map<AiProviderType, AiProvider> _providers;
-  final Future<List<QuotaRoute>> Function() _loadRoutes;
+  final Map<AiProviderType, AiProvider> providers;
+  final Future<List<QuotaRoute>> Function() loadRoutes;
   final UsageTracker usageTracker;
-  final DateTime Function() _now;
+  final DateTime Function() now;
 
   @override
   Future<AiReply> sendChat({
@@ -40,13 +38,13 @@ class AutoRouter implements AiProvider {
     var rateLimited = false;
     var missingKey = false;
     DateTime? earliestReset;
-    final now = _now().toUtc();
-    final midnight = DateTime.utc(now.year, now.month, now.day + 1);
+    final nowUtc = now().toUtc();
+    final midnight = DateTime.utc(nowUtc.year, nowUtc.month, nowUtc.day + 1);
 
-    for (final route in await _loadRoutes()) {
+    for (final route in await loadRoutes()) {
       if (!route.enabled) continue;
       final usage = await usageTracker.usageFor(route);
-      final blocked = usage.blockedUntil?.isAfter(now) ?? false;
+      final blocked = usage.blockedUntil?.isAfter(nowUtc) ?? false;
       final usedUp =
           route.dailyLimit != null && usage.usedFor(route) >= route.dailyLimit!;
       if (blocked || usedUp) {
@@ -57,7 +55,7 @@ class AutoRouter implements AiProvider {
         continue;
       }
 
-      final provider = _providers[route.provider];
+      final provider = providers[route.provider];
       if (provider == null) continue;
 
       try {
@@ -79,7 +77,7 @@ class AutoRouter implements AiProvider {
       } on RateLimitException catch (error) {
         rateLimited = true;
         final retryAt =
-            error.retryAt ?? _now().toUtc().add(const Duration(minutes: 1));
+            error.retryAt ?? now().toUtc().add(const Duration(minutes: 1));
         await usageTracker.block(route, until: retryAt);
         if (earliestReset == null || retryAt.isBefore(earliestReset)) {
           earliestReset = retryAt;

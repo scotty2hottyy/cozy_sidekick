@@ -167,7 +167,7 @@ AutoRouter _router(
   providers: providers,
   loadRoutes: () async => routes,
   usageTracker: tracker,
-  now: now,
+  now: now ?? DateTime.now,
 );
 
 class _FakeProvider implements AiProvider {
