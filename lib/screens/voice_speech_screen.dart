@@ -63,9 +63,10 @@ class _VoiceSpeechScreenState extends State<VoiceSpeechScreen> {
 
   List<SpeechVoice> get _matchingVoices {
     final languageId = _settings?.languageId;
-    if (languageId == null)
+    if (languageId == null) {
       return List<SpeechVoice>.of(_voices)
         ..sort((a, b) => a.name.compareTo(b.name));
+    }
     final language = languageId.split('-').first.toLowerCase();
     return _voices
         .where(

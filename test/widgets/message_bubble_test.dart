@@ -107,6 +107,23 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('long-press offers Read aloud when a callback is supplied', (
+    tester,
+  ) async {
+    var reads = 0;
+    await _showBubble(
+      tester,
+      MessageBubble(message: reply, onReadAloud: () => reads++),
+    );
+
+    await tester.longPress(find.text('No.'));
+    await tester.pumpAndSettle();
+    expect(find.text('Read aloud'), findsOneWidget);
+    await tester.tap(find.text('Read aloud'));
+    await tester.pumpAndSettle();
+    expect(reads, 1);
+  });
+
   testWidgets('while it thinks, the reasoning grows under an open row', (
     tester,
   ) async {

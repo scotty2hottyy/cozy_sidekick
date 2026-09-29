@@ -8,6 +8,7 @@ import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/app.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
+import 'package:cozy_sidekick/models/speech_settings.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/chat_service.dart';
 import 'package:cozy_sidekick/services/model_list_service.dart';
@@ -733,6 +734,213 @@ void main() {
     expect(find.textContaining('permissions are needed'), findsOneWidget);
   });
 
+  testWidgets('auto-send sends nonempty final speech using saved locale', (
+    tester,
+  ) async {
+    final speech = FakeSpeechService();
+    final history = FakeChatHistoryStore();
+    final settings = InMemorySettingsStore(
+      speechSettings: const SpeechSettings(
+        languageId: 'fr-FR',
+        sendWhenDone: true,
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        speechService: speech,
+        settingsStore: settings,
+        conversationStore: history,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('microphoneButton')));
+    await tester.pump();
+    expect(speech.lastLocaleId, 'fr-FR');
+    expect(speech.lastSendWhenDone, isTrue);
+
+    speech.emitText("What's a good name for a cat?");
+    speech.emitFinal('   ');
+    await tester.pump();
+    expect(history.messages.where((message) => message.isUser), isEmpty);
+    speech.emitFinal("What's a good name for a cat?");
+    await tester.pumpAndSettle();
+
+    expect(
+      history.messages.where((message) => message.isUser).map((m) => m.text),
+      <String>["What's a good name for a cat?"],
+    );
+  });
+
+  testWidgets('After I talk speaks spoken replies, never reasoning', (
+    tester,
+  ) async {
+    final speech = FakeSpeechService();
+    final tts = FakeTextToSpeechService();
+    await tester.pumpWidget(
+      _app(
+        speechService: speech,
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(
+            readAloud: ReadAloudMode.afterSpoken,
+          ),
+        ),
+        provider: _FakeProvider(reasoning: 'Keep this private.'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('microphoneButton')));
+    await tester.pump();
+    speech.emitText('Tell me a cat name');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('sendButton')));
+    await tester.pumpAndSettle();
+
+    expect(tts.lastText, 'Provider: Tell me a cat name');
+    expect(tts.lastText, isNot(contains('Keep this private.')));
+  });
+
+  testWidgets('After I talk stays quiet for typed messages', (tester) async {
+    final tts = FakeTextToSpeechService();
+    await tester.pumpWidget(
+      _app(
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(
+            readAloud: ReadAloudMode.afterSpoken,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Typed question');
+
+    expect(tts.lastText, isNull);
+  });
+
+  testWidgets('Always reads typed replies and Stop ends active speech', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    final tts = FakeTextToSpeechService()..speakCompletion = completion;
+    await tester.pumpWidget(
+      _app(
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(readAloud: ReadAloudMode.always),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _startMessage(tester, 'Typed question');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Speaking…'), findsOneWidget);
+    expect(find.byKey(const Key('stopSpeakingButton')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('stopSpeakingButton')));
+    await tester.pumpAndSettle();
+
+    expect(tts.stopCalls, greaterThan(0));
+    expect(find.text('Speaking…'), findsNothing);
+  });
+
+  testWidgets('the microphone stops current read-aloud output', (tester) async {
+    final completion = Completer<void>();
+    final speech = FakeSpeechService();
+    final tts = FakeTextToSpeechService()..speakCompletion = completion;
+    await tester.pumpWidget(
+      _app(
+        speechService: speech,
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(readAloud: ReadAloudMode.always),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _startMessage(tester, 'Typed question');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Speaking…'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('microphoneButton')));
+    await tester.pump();
+
+    expect(tts.stopCalls, greaterThan(0));
+    expect(speech.startCalls, 0);
+    expect(find.text('Speaking…'), findsNothing);
+  });
+
+  testWidgets('long-press reads a reply even when automatic speech is off', (
+    tester,
+  ) async {
+    final tts = FakeTextToSpeechService();
+    final history = FakeChatHistoryStore()
+      ..messages = <ChatMessage>[ChatMessage.assistant('Read this reply')];
+    await tester.pumpWidget(
+      _app(conversationStore: history, textToSpeechService: tts),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Read this reply'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Read aloud'));
+    await tester.pumpAndSettle();
+
+    expect(tts.lastText, 'Read this reply');
+  });
+
+  testWidgets('opening Settings stops active read-aloud output', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    final tts = FakeTextToSpeechService()..speakCompletion = completion;
+    await tester.pumpWidget(
+      _app(
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(readAloud: ReadAloudMode.always),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _startMessage(tester, 'Typed question');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Speaking…'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settingsButton')));
+    await tester.pumpAndSettle();
+
+    expect(tts.stopCalls, greaterThan(0));
+    expect(find.text('Settings'), findsOneWidget);
+  });
+
+  testWidgets('switching chats stops active read-aloud output', (tester) async {
+    final completion = Completer<void>();
+    final tts = FakeTextToSpeechService()..speakCompletion = completion;
+    await tester.pumpWidget(
+      _app(
+        textToSpeechService: tts,
+        settingsStore: InMemorySettingsStore(
+          speechSettings: const SpeechSettings(readAloud: ReadAloudMode.always),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _startMessage(tester, 'Typed question');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Speaking…'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('chatsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('newChatButton')));
+    await tester.pumpAndSettle();
+
+    expect(tts.stopCalls, greaterThan(0));
+    expect(find.text('Speaking…'), findsNothing);
+  });
+
   testWidgets('personality screen loads and saves a custom default', (
     tester,
   ) async {
@@ -1079,6 +1287,7 @@ Future<void> _startMessage(WidgetTester tester, String text) async {
 
 CozySidekickApp _app({
   SpeechService? speechService,
+  TextToSpeechService? textToSpeechService,
   PersonalityStore? personalityStore,
   ConversationStore? conversationStore,
   AiProvider? provider,
@@ -1098,7 +1307,7 @@ CozySidekickApp _app({
       providers: providers,
     ),
     speechService: speechService ?? FakeSpeechService(),
-    textToSpeechService: FakeTextToSpeechService(),
+    textToSpeechService: textToSpeechService ?? FakeTextToSpeechService(),
     settingsStore: settings,
     personalityStore: personalities,
     keyStore: keys,
@@ -1277,6 +1486,8 @@ class FakeTextToSpeechService implements TextToSpeechService {
   double? lastRate;
   String? lastText;
   int stopCalls = 0;
+  Completer<void>? speakCompletion;
+  bool isSpeaking = false;
 
   @override
   Future<List<SpeechVoice>> voices() async => availableVoices;
@@ -1292,10 +1503,22 @@ class FakeTextToSpeechService implements TextToSpeechService {
     lastVoiceName = voiceName;
     lastVoiceLocale = voiceLocale;
     lastRate = rate;
+    isSpeaking = true;
+    try {
+      await speakCompletion?.future;
+    } finally {
+      isSpeaking = false;
+    }
   }
 
   @override
-  Future<void> stop() async => stopCalls++;
+  Future<void> stop() async {
+    stopCalls++;
+    final completion = speakCompletion;
+    if (isSpeaking && completion != null && !completion.isCompleted) {
+      completion.complete();
+    }
+  }
 
   @override
   Future<void> dispose() async {}

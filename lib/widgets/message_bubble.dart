@@ -16,6 +16,7 @@ class MessageBubble extends StatelessWidget {
     this.showReasoning = false,
     this.reasoningExpanded = false,
     this.onReasoningToggle,
+    this.onReadAloud,
   });
   final ChatMessage message;
 
@@ -32,6 +33,7 @@ class MessageBubble extends StatelessWidget {
 
   /// Called when the Reasoning row is tapped.
   final VoidCallback? onReasoningToggle;
+  final VoidCallback? onReadAloud;
 
   @override
   Widget build(BuildContext context) {
@@ -94,22 +96,35 @@ class MessageBubble extends StatelessWidget {
 
   Future<void> _showReplyActions(BuildContext context) async {
     Feedback.forLongPress(context);
-    final copy = await showModalBottomSheet<bool>(
+    final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) => SafeArea(
-        child: ListTile(
-          leading: const Icon(Icons.copy_rounded),
-          title: const Text('Copy'),
-          onTap: () => Navigator.pop(sheetContext, true),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy'),
+              onTap: () => Navigator.pop(sheetContext, 'copy'),
+            ),
+            if (onReadAloud != null)
+              ListTile(
+                leading: const Icon(Icons.volume_up_rounded),
+                title: const Text('Read aloud'),
+                onTap: () => Navigator.pop(sheetContext, 'read'),
+              ),
+          ],
         ),
       ),
     );
-    if (copy != true) return;
-    // The original Markdown and LaTeX, not the rendered text.
-    await Clipboard.setData(ClipboardData(text: message.text));
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Copied')));
+    if (action == 'read') {
+      onReadAloud?.call();
+    } else if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: message.text));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Copied')));
+    }
   }
 }
 
