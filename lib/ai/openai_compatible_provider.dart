@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 
 import '../models/chat_message.dart';
+import '../models/free_quota.dart';
 import '../services/api_key_store.dart';
 import 'ai_provider.dart';
 import 'http_helper.dart';
@@ -13,6 +14,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     required this.keyStore,
     this.extraHeaders = const <String, String>{},
     this.publicModelList = false,
+    this.freeQuotaFromHeaders,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
@@ -26,6 +28,10 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   /// Whether [listModels] works without a key.
   final bool publicModelList;
+
+  /// Reads the free quota from a reply's headers, for providers that report
+  /// it there, like Groq. Null for the others.
+  final FreeQuota? Function(Map<String, String> headers)? freeQuotaFromHeaders;
   final http.Client _client;
 
   @override
@@ -35,14 +41,22 @@ class OpenAiCompatibleProvider implements AiProvider {
     Future<void>? abortTrigger,
     String? model,
   }) async {
+    FreeQuota? freeQuota;
     final json = await postJson(
       _client,
       _url('chat/completions'),
       headers: await _headers(),
       abortTrigger: abortTrigger,
       body: buildRequestBody(systemPrompt, messages, model: model),
+      onHeaders: (headers) => freeQuota = freeQuotaFromHeaders?.call(headers),
     );
-    return parseReply(json);
+    final reply = parseReply(json);
+    return AiReply(
+      text: reply.text,
+      reasoning: reply.reasoning,
+      totalTokens: reply.totalTokens,
+      freeQuota: freeQuota,
+    );
   }
 
   @override
@@ -52,6 +66,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     Future<void>? abortTrigger,
     String? model,
   }) async* {
+    FreeQuota? freeQuota;
     final events = postEventStream(
       _client,
       _url('chat/completions'),
@@ -62,6 +77,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         'stream': true,
         'stream_options': <String, bool>{'include_usage': true},
       },
+      onHeaders: (headers) => freeQuota = freeQuotaFromHeaders?.call(headers),
     );
 
     final content = StringBuffer();
@@ -109,6 +125,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       text: parsed.text,
       reasoning: parsed.reasoning,
       totalTokens: totalTokens,
+      freeQuota: freeQuota,
     );
 
     if (finished.text.isEmpty) {
@@ -120,10 +137,12 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   /// The IDs of the chat models at `{baseUrl}/models`, sorted. Models that
   /// can't chat, like speech, image and embedding models, are left out.
+  /// With [freeOnly], so are models that aren't free, as OpenRouter prices
+  /// them.
   ///
   /// Throws [MissingApiKeyException] when the list needs a key and none is
   /// saved.
-  Future<List<String>> listModels() async {
+  Future<List<String>> listModels({bool freeOnly = false}) async {
     final json = await getJson(
       _client,
       _url('models'),
@@ -134,7 +153,9 @@ class OpenAiCompatibleProvider implements AiProvider {
     final ids = <String>{
       if (data is List)
         for (final entry in data)
-          if (entry is Map<String, dynamic> && _isChatModel(entry))
+          if (entry is Map<String, dynamic> &&
+              _isChatModel(entry) &&
+              (!freeOnly || _isFreeModel(entry)))
             entry['id'] as String,
     };
 
@@ -339,14 +360,41 @@ class OpenAiCompatibleProvider implements AiProvider {
       return outputs is! List || outputs.contains('text');
     }
 
-    return !id
-        .toLowerCase()
-        .split(RegExp(r'[-/._:]'))
-        .any(_nonChatWords.contains);
+    return !_words(id).any(_nonChatWords.contains);
   }
 
-  /// Words in the IDs of OpenAI and Groq models that can't chat, or only
-  /// through other APIs.
+  /// Whether [entry] costs nothing: OpenRouter's `:free` models, and its
+  /// `openrouter/free` router, which picks one of them. Other models priced
+  /// at 0, like OpenRouter's stealth and music models, are left out: the
+  /// music models bill per song, and neither is covered by the free quota.
+  ///
+  /// Models that only check text for safety are left out too, since they
+  /// can't chat.
+  static bool _isFreeModel(Map<String, dynamic> entry) {
+    final id = entry['id'] as String;
+    final pricing = entry['pricing'];
+
+    if (pricing is! Map<String, dynamic>) return false;
+
+    // An unlisted price is free. A router's price of -1 isn't.
+    bool free(String key) {
+      final price = pricing[key];
+      return price == null || double.tryParse('$price') == 0;
+    }
+
+    return (id.endsWith(':free') || id == 'openrouter/free') &&
+        free('prompt') &&
+        free('completion') &&
+        free('request') &&
+        !_words(id).any(_nonChatWords.contains);
+  }
+
+  static Iterable<String> _words(String id) =>
+      id.toLowerCase().split(RegExp(r'[-/._:]'));
+
+  /// Words in the IDs of models that can't chat, or only through other APIs.
+  /// OpenAI and Groq don't say what their models write, and some free
+  /// models only check text for safety.
   static const Set<String> _nonChatWords = <String>{
     'audio',
     'babbage',
@@ -361,6 +409,8 @@ class OpenAiCompatibleProvider implements AiProvider {
     'moderation',
     'orpheus',
     'realtime',
+    'safeguard',
+    'safety',
     'sora',
     'transcribe',
     'tts',

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../ai/ai_provider.dart';
+import '../ai/error_messages.dart';
+import '../models/openai_free_tier.dart';
 import '../models/quota_route.dart';
 import '../services/api_key_store.dart';
+import '../services/free_quota_service.dart';
 import '../services/model_list_service.dart';
-import '../services/openrouter_quota_service.dart';
 import '../services/settings_service.dart';
 import '../services/usage_tracker.dart';
 import 'model_list_screen.dart';
@@ -16,16 +18,16 @@ class AiSettingsScreen extends StatefulWidget {
     required this.modelLister,
     required ApiKeyStore keyStore,
     UsageTracker? usageTracker,
-    OpenRouterQuotaReader? quotaReader,
+    FreeQuotaReader? quotaReader,
   }) : keyStore = keyStore,
        usageTracker = usageTracker ?? UsageTracker(),
-       quotaReader = quotaReader ?? OpenRouterQuotaService(keyStore: keyStore);
+       quotaReader = quotaReader ?? FreeQuotaService(keyStore: keyStore);
 
   final AppSettingsStore settingsStore;
   final ModelLister modelLister;
   final ApiKeyStore keyStore;
   final UsageTracker usageTracker;
-  final OpenRouterQuotaReader quotaReader;
+  final FreeQuotaReader quotaReader;
 
   @override
   State<AiSettingsScreen> createState() => _AiSettingsScreenState();
@@ -37,6 +39,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   bool _autoRoute = false;
   List<QuotaRoute> _routes = <QuotaRoute>[];
   Map<String, String> _routeStatuses = <String, String>{};
+
+  /// Counts the status refreshes, so an older one can't replace a newer one.
+  int _statusRefreshes = 0;
 
   /// The model saved for [_selected], or null while it uses its default.
   String? _model;
@@ -73,57 +78,44 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     }
   }
 
+  /// Reads the free quotas and shows how much of each route is left. The
+  /// quotas are only read while auto-routing is on.
   Future<void> _refreshRouteStatuses() async {
-    int? remoteRemaining;
-    try {
-      remoteRemaining = await widget.quotaReader.freeRequestsRemaining();
-    } on AiProviderException {
-      remoteRemaining = null;
+    if (!_autoRoute) return;
+    final refresh = ++_statusRefreshes;
+    final routes = _routes;
+    final hasKey = <AiProviderType, bool>{};
+    for (final provider in <AiProviderType>{
+      for (final route in routes) route.provider,
+    }) {
+      final key = await widget.keyStore.read(provider);
+      hasKey[provider] = key != null && key.trim().isNotEmpty;
+      if (!hasKey[provider]!) continue;
+      try {
+        final quota = await widget.quotaReader.read(provider);
+        // A newer refresh reads its own quota for the routes as they are now.
+        if (refresh != _statusRefreshes) return;
+        if (quota == null) continue;
+        for (final route in routes) {
+          if (route.provider == provider) {
+            await widget.usageTracker.report(route, quota);
+          }
+        }
+      } on AiProviderException catch (e) {
+        // The row says the quota is unknown instead.
+        debugPrint('Free quota check failed: $e'); // never includes keys
+      }
     }
     final statuses = <String, String>{};
     final now = DateTime.now().toUtc();
-    final midnight = DateTime.utc(now.year, now.month, now.day + 1);
-    for (final route in _routes) {
-      final key = await widget.keyStore.read(route.provider);
-      if (key == null || key.trim().isEmpty) {
-        statuses[route.id] = 'No key saved';
-        continue;
-      }
-      if (route.provider == AiProviderType.openRouter &&
-          remoteRemaining != null) {
-        statuses[route.id] = '$remoteRemaining free requests remaining today';
-        continue;
-      }
-      final usage = await widget.usageTracker.usageFor(route);
-      if (usage.blockedUntil?.isAfter(now) ?? false) {
-        statuses[route.id] =
-            'Used up · resets ${_formatTime(usage.blockedUntil!)}';
-      } else if (route.dailyLimit != null &&
-          usage.usedFor(route) >= route.dailyLimit!) {
-        statuses[route.id] = 'Used up · resets ${_formatTime(midnight)}';
-      } else if (route.dailyLimit == null) {
-        statuses[route.id] = '${usage.requests} requests today';
-      } else {
-        statuses[route.id] =
-            '${_formatCount(usage.usedFor(route))} / '
-            '${_formatCount(route.dailyLimit!)} '
-            '${route.unit.name} today';
-      }
+    for (final route in routes) {
+      statuses[route.id] = hasKey[route.provider]!
+          ? routeStatus(route, await widget.usageTracker.usageFor(route), now)
+          : 'No key saved';
     }
-    if (mounted) setState(() => _routeStatuses = statuses);
-  }
-
-  static String _formatCount(int count) {
-    if (count >= 1000000) return '${(count / 1000000).toStringAsFixed(1)}M';
-    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}K';
-    return '$count';
-  }
-
-  static String _formatTime(DateTime dateTime) {
-    final time = dateTime.toUtc();
-    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
-    final minute = time.minute.toString().padLeft(2, '0');
-    return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'} UTC';
+    if (mounted && refresh == _statusRefreshes) {
+      setState(() => _routeStatuses = statuses);
+    }
   }
 
   Future<void> _select(AiProviderType? provider) async {
@@ -146,6 +138,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   Future<void> _setAutoRoute(bool value) async {
     setState(() => _autoRoute = value);
     await widget.settingsStore.saveAutoRouteEnabled(value);
+    await _refreshRouteStatuses();
   }
 
   Future<void> _reorderRoutes(int oldIndex, int newIndex) async {
@@ -190,9 +183,16 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _editRoute(QuotaRoute route) async {
+    final key = await widget.keyStore.read(route.provider);
+    if (!mounted) return;
     final result = await showDialog<QuotaRoute>(
       context: context,
-      builder: (context) => _QuotaRouteEditDialog(route: route),
+      builder: (context) => _QuotaRouteEditDialog(
+        route: route,
+        hasKey: key != null && key.trim().isNotEmpty,
+        modelLister: widget.modelLister,
+        usageTracker: widget.usageTracker,
+      ),
     );
     if (result != null && mounted) await _saveRoute(result);
   }
@@ -443,89 +443,392 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 }
 
+/// The line under a route in AI Settings: how much of its free quota or the
+/// user's limit is left today.
+String routeStatus(QuotaRoute route, RouteUsage usage, DateTime now) {
+  final nowUtc = now.toUtc();
+  if (route.userLimit == 0) return 'Skipped · daily limit is 0';
+  final reset = usage.resetFor(route, nowUtc);
+  if (reset != null) {
+    if (!usage.isBusy(route, nowUtc)) {
+      return 'Used up · resets ${formatUtcTime(reset)}';
+    }
+    // A 429 without a time from the provider waits only a second.
+    return reset.difference(nowUtc) < const Duration(minutes: 1)
+        ? 'Busy · try again in a moment'
+        : 'Busy · try again after ${formatUtcTime(reset)}';
+  }
+  final limit = usage.limitFor(route);
+  if (limit == null) {
+    return '${formatAmount(usage.usedFor(route), route.unit)} today · '
+        'free quota unknown';
+  }
+  final left = formatAmount(usage.leftFor(route)!, route.unit, withUnit: false);
+  return limit == usage.freeQuotaFor(route)
+      ? '$left of ${formatAmount(limit, route.unit, free: true)} left today'
+      : '$left of your ${formatAmount(limit, route.unit)} left today';
+}
+
+/// [amount] of [unit], like "1,000 requests" or "2.25M tokens". Tokens are
+/// shortened to K and M. [free] puts "free" before the unit.
+String formatAmount(
+  int amount,
+  QuotaUnit unit, {
+  bool withUnit = true,
+  bool free = false,
+}) {
+  final number = unit == QuotaUnit.tokens
+      ? _shortNumber(amount)
+      : _groupedNumber(amount);
+  if (!withUnit) return number;
+  final name = switch (unit) {
+    QuotaUnit.requests => amount == 1 ? 'request' : 'requests',
+    QuotaUnit.tokens => amount == 1 ? 'token' : 'tokens',
+  };
+  return free ? '$number free $name' : '$number $name';
+}
+
+/// [dateTime] in UTC, like "12:00 AM UTC".
+String formatUtcTime(DateTime dateTime) {
+  final time = dateTime.toUtc();
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'} UTC';
+}
+
+/// 1234567 as "1,234,567".
+String _groupedNumber(int number) {
+  final digits = number.abs().toString();
+  final grouped = StringBuffer(number < 0 ? '-' : '');
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) grouped.write(',');
+    grouped.write(digits[i]);
+  }
+  return '$grouped';
+}
+
+/// 2250000 as "2.25M" and 250000 as "250K", with up to three digits.
+String _shortNumber(int number) {
+  if (number.abs() < 1000) return '$number';
+  var (value, suffix) = number.abs() < 1000000
+      ? (number / 1000, 'K')
+      : (number / 1000000, 'M');
+  // 999,999 would round to "1000K", so it's "1M".
+  if (suffix == 'K' && value.abs().round() >= 1000) {
+    (value, suffix) = (number / 1000000, 'M');
+  }
+  final decimals = value.abs() >= 100
+      ? 0
+      : value.abs() >= 10
+      ? 1
+      : 2;
+  var text = value.toStringAsFixed(decimals);
+  // Only zeros after the decimal point go, so 250 stays 250.
+  if (text.contains('.')) text = text.replaceFirst(RegExp(r'\.?0+$'), '');
+  return '$text$suffix';
+}
+
+/// Edits a route's model, picked from the provider's free models, and its
+/// daily limit, on a slider from 0 to the free quota.
 class _QuotaRouteEditDialog extends StatefulWidget {
-  const _QuotaRouteEditDialog({required this.route});
+  const _QuotaRouteEditDialog({
+    required this.route,
+    required this.hasKey,
+    required this.modelLister,
+    required this.usageTracker,
+  });
 
   final QuotaRoute route;
+  final ModelLister modelLister;
+  final UsageTracker usageTracker;
+
+  /// Whether a key is saved for the route's provider, which reading its free
+  /// quota needs.
+  final bool hasKey;
 
   @override
   State<_QuotaRouteEditDialog> createState() => _QuotaRouteEditDialogState();
 }
 
 class _QuotaRouteEditDialogState extends State<_QuotaRouteEditDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _modelController;
-  late final TextEditingController _limitController;
+  /// The free models, or null while they load.
+  List<String>? _models;
+
+  /// Why the models couldn't be loaded.
+  String? _modelsError;
+
+  /// The picked model, or null until one of [_models] is picked.
+  String? _model;
+
+  /// The user's limit, or null for the whole free quota.
+  int? _limit;
+
+  late bool _highUsageTier;
+
+  /// The free quota for [_model], which is the slider's maximum. Null when
+  /// it isn't known.
+  int? _quota;
+
+  /// Whether [_quota] is still loading.
+  bool _quotaLoading = true;
+
+  /// Counts the quota loads, so an older one can't replace a newer one.
+  int _quotaLoads = 0;
+
+  QuotaRoute get _route => widget.route;
 
   @override
   void initState() {
     super.initState();
-    _modelController = TextEditingController(text: widget.route.model);
-    _limitController = TextEditingController(
-      text: widget.route.dailyLimit?.toString() ?? '',
+    _limit = _route.userLimit;
+    _highUsageTier = _route.highUsageTier;
+    _loadModels();
+    _loadQuota(_route.model);
+  }
+
+  Future<void> _loadModels() async {
+    List<String> models;
+    String? error;
+    String? model;
+    try {
+      models = await widget.modelLister.listFreeModels(_route.provider);
+      if (models.contains(_route.model)) model = _route.model;
+    } on AiProviderException catch (e) {
+      debugPrint('Free model list failed: $e'); // never includes keys
+      // The route keeps its model until the list loads.
+      models = <String>[_route.model];
+      model = _route.model;
+      error = e is MissingApiKeyException
+          ? 'Add your ${_route.provider.displayName} key in API Credentials '
+                'to see its free models.'
+          : "Couldn't load the free models. ${friendlyMessage(e)}";
+    }
+    if (!mounted) return;
+    setState(() {
+      _models = models;
+      _modelsError = error;
+      _model = model;
+    });
+  }
+
+  /// Loads [model]'s free quota. OpenAI's is a fixed allowance, and the
+  /// others are the last ones their providers reported.
+  Future<void> _loadQuota(String model) async {
+    final load = ++_quotaLoads;
+    if (!_quotaLoading) setState(() => _quotaLoading = true);
+    final quota = await widget.usageTracker.knownFreeQuota(_draft(model));
+    if (!mounted || load != _quotaLoads) return;
+    setState(() {
+      _quota = quota;
+      _quotaLoading = false;
+      // A limit at or above the quota is the whole quota.
+      if (quota != null && (_limit ?? 0) >= quota) _limit = null;
+    });
+  }
+
+  QuotaRoute _draft(String model) => _route.copyWith(
+    model: model,
+    userLimit: _limit,
+    clearUserLimit: _limit == null,
+    highUsageTier: _highUsageTier,
+  );
+
+  void _pickModel(String? model) {
+    if (model == null || model == _model) return;
+    final group = OpenAiFreeTier.of(model);
+    setState(() {
+      // Another OpenAI group has another allowance, so the limit starts
+      // again at its suggested one.
+      if (group != null && group != OpenAiFreeTier.of(_model ?? '')) {
+        _limit = group.suggestedLimit(highUsageTier: _highUsageTier);
+      } else if (_route.quotaIsPerModel) {
+        // Each Groq model has its own quota, so another model's limit
+        // doesn't carry over.
+        _limit = null;
+      }
+      _model = model;
+    });
+    _loadQuota(model);
+  }
+
+  void _setHighUsageTier(bool value) {
+    final group = OpenAiFreeTier.of(_model ?? _route.model);
+    setState(() {
+      _highUsageTier = value;
+      if (group != null) {
+        _limit = group.suggestedLimit(highUsageTier: value);
+      }
+    });
+    _loadQuota(_model ?? _route.model);
+  }
+
+  void _save() => Navigator.of(context).pop(_draft(_model!));
+
+  @override
+  Widget build(BuildContext context) {
+    final models = _models;
+    final isOpenAi = _route.provider == AiProviderType.openAi;
+    return AlertDialog(
+      title: Text('Edit ${_route.provider.displayName} route'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (models == null)
+              const Center(child: CircularProgressIndicator())
+            else
+              _modelDropdown(models),
+            if (isOpenAi) ...<Widget>[
+              const SizedBox(height: 8),
+              SwitchListTile(
+                key: const Key('highUsageTierSwitch'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Usage tier 3 or higher'),
+                subtitle: const Text('Four times the free tokens'),
+                value: _highUsageTier,
+                onChanged: _setHighUsageTier,
+              ),
+            ],
+            const SizedBox(height: 16),
+            ..._limitSlider(),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('saveRouteButton'),
+          onPressed: _model == null ? null : _save,
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 
-  @override
-  void dispose() {
-    _modelController.dispose();
-    _limitController.dispose();
-    super.dispose();
+  Widget _modelDropdown(List<String> models) => DropdownButtonFormField<String>(
+    key: const Key('routeModelDropdown'),
+    initialValue: _model,
+    isExpanded: true,
+    menuMaxHeight: 320,
+    decoration: InputDecoration(
+      labelText: 'Model',
+      border: const OutlineInputBorder(),
+      errorText: _modelsError,
+      errorMaxLines: 3,
+      helperText: _model == null
+          ? "${_route.model} isn't one of the free models. Pick one."
+          : _allowance(_model!),
+      helperMaxLines: 3,
+    ),
+    hint: const Text('Pick a model'),
+    // Menu items can have a second line, for OpenAI's allowances.
+    itemHeight: null,
+    // The closed menu shows only the model, with its allowance below it.
+    // Screen readers still announce it as a button, as they do the items.
+    selectedItemBuilder: (context) => <Widget>[
+      for (final model in models)
+        Semantics(
+          button: true,
+          child: Text(model, overflow: TextOverflow.ellipsis),
+        ),
+    ],
+    items: <DropdownMenuItem<String>>[
+      for (final model in models)
+        DropdownMenuItem<String>(value: model, child: _modelLabel(model)),
+    ],
+    onChanged: _modelsError == null ? _pickModel : null,
+  );
+
+  /// [model]'s ID, and under it OpenAI's free tokens a day for its group.
+  Widget _modelLabel(String model) {
+    final allowance = _allowance(model);
+    if (allowance == null) return Text(model, overflow: TextOverflow.ellipsis);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(model, overflow: TextOverflow.ellipsis),
+        Text(
+          allowance,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: Theme.of(context).hintColor),
+        ),
+      ],
+    );
   }
 
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text('Edit ${widget.route.provider.displayName} route'),
-    content: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          TextFormField(
-            controller: _modelController,
-            decoration: const InputDecoration(labelText: 'Model ID'),
-            validator: (value) => value == null || value.trim().isEmpty
-                ? 'Enter a model ID'
-                : null,
-          ),
-          TextFormField(
-            controller: _limitController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Daily limit',
-              hintText: 'Leave blank if unknown',
+  /// The free tokens a day for an OpenAI [model]'s group, like "250K tokens
+  /// a day". Null for the other providers.
+  String? _allowance(String model) {
+    final group = OpenAiFreeTier.of(model);
+    if (_route.provider != AiProviderType.openAi || group == null) return null;
+    final tokens = group.tokensPerDay(highUsageTier: _highUsageTier);
+    return '${formatAmount(tokens, QuotaUnit.tokens)} a day';
+  }
+
+  List<Widget> _limitSlider() {
+    final heading = Text(
+      'Daily limit',
+      style: Theme.of(context).textTheme.titleSmall,
+    );
+    if (_quotaLoading) return <Widget>[heading];
+    final quota = _quota;
+    if (quota == null || quota <= 0) {
+      return <Widget>[
+        heading,
+        const SizedBox(height: 8),
+        Text(
+          !widget.hasKey
+              ? 'Add your ${_route.provider.displayName} key in API Credentials '
+                    'to read its free quota and set a limit.'
+              : _route.provider == AiProviderType.groq
+              ? 'Groq reports its free quota with each reply. Once this '
+                    'model has answered, you can set a limit here.'
+              : "The free quota isn't known yet, so a limit can't be set.",
+          key: const Key('quotaUnknownText'),
+        ),
+      ];
+    }
+    final limit = _limit;
+    String describe(int? limit) => limit == null
+        ? 'Use the whole free quota'
+        : '${formatAmount(limit, _route.unit)} a day';
+    return <Widget>[
+      // Screen readers announce the heading with the slider.
+      MergeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            heading,
+            Slider(
+              key: const Key('dailyLimitSlider'),
+              max: quota.toDouble(),
+              // One step per request up to 100, and 100 steps above that.
+              divisions: quota <= 100 ? quota : 100,
+              value: (limit ?? quota).clamp(0, quota).toDouble(),
+              label: limit == null
+                  ? 'All'
+                  : formatAmount(limit, _route.unit, withUnit: false),
+              semanticFormatterCallback: (value) =>
+                  describe(value.round() >= quota ? null : value.round()),
+              onChanged: (value) {
+                final picked = value.round();
+                setState(() => _limit = picked >= quota ? null : picked);
+              },
             ),
-            validator: (value) {
-              final limit = int.tryParse(value?.trim() ?? '');
-              return value != null &&
-                      value.trim().isNotEmpty &&
-                      (limit == null || limit <= 0)
-                  ? 'Enter a positive whole number'
-                  : null;
-            },
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-    actions: <Widget>[
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+      Text(describe(limit), key: const Key('dailyLimitText')),
+      const SizedBox(height: 4),
+      Text(
+        'The free quota is ${formatAmount(quota, _route.unit)} a day.',
+        style: Theme.of(context).textTheme.bodySmall,
       ),
-      FilledButton(
-        onPressed: () {
-          if (!_formKey.currentState!.validate()) return;
-          final limit = int.tryParse(_limitController.text.trim());
-          Navigator.of(context).pop(
-            widget.route.copyWith(
-              model: _modelController.text.trim(),
-              dailyLimit: limit,
-              clearDailyLimit: limit == null,
-            ),
-          );
-        },
-        child: const Text('Save'),
-      ),
-    ],
-  );
+    ];
+  }
 }
