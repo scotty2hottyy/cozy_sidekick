@@ -93,7 +93,7 @@ void main() {
         QuotaRoute.defaults[1],
         QuotaRoute.defaults[0].copyWith(
           model: 'openrouter/custom',
-          dailyLimit: 7,
+          userLimit: 7,
         ),
         QuotaRoute.defaults[2],
       ];

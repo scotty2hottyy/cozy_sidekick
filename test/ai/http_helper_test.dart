@@ -75,6 +75,108 @@ void main() {
     });
   }
 
+  group('a 429 retry time', () {
+    /// The retryAt of the RateLimitException for a 429 with [headers] and
+    /// [body].
+    Future<DateTime?> retryAtFor({
+      Map<String, String> headers = const <String, String>{},
+      String body = '{}',
+    }) async {
+      try {
+        await postJson(
+          MockClient((_) async => http.Response(body, 429, headers: headers)),
+          Uri.parse('https://example.com'),
+          headers: <String, String>{},
+          body: <String, Object?>{},
+        );
+      } on RateLimitException catch (error) {
+        return error.retryAt;
+      }
+      fail('No RateLimitException');
+    }
+
+    Matcher secondsFromNow(double seconds) => predicate<DateTime?>((retryAt) {
+      if (retryAt == null) return false;
+      final ms = retryAt.difference(DateTime.now().toUtc()).inMilliseconds;
+      return (ms - seconds * 1000).abs() < 2000;
+    }, '$seconds seconds from now');
+
+    test('reads Retry-After in whole or part seconds', () async {
+      expect(
+        await retryAtFor(headers: <String, String>{'retry-after': '1.5'}),
+        secondsFromNow(1.5),
+      );
+    });
+
+    test('reads X-RateLimit-Reset in milliseconds or seconds', () async {
+      final reset = DateTime.now().toUtc().add(const Duration(minutes: 2));
+      final millis = reset.millisecondsSinceEpoch;
+      expect(
+        await retryAtFor(
+          headers: <String, String>{'x-ratelimit-reset': '$millis'},
+        ),
+        secondsFromNow(120),
+      );
+      expect(
+        await retryAtFor(
+          headers: <String, String>{'x-ratelimit-reset': '${millis ~/ 1000}'},
+        ),
+        secondsFromNow(120),
+      );
+    });
+
+    test("reads the reset time in OpenRouter's error metadata", () async {
+      final reset = DateTime.now().toUtc().add(const Duration(minutes: 2));
+      expect(
+        await retryAtFor(
+          body: jsonEncode(<String, Object?>{
+            'error': <String, Object?>{
+              'code': 429,
+              'message': 'Rate limit exceeded: free-models-per-min.',
+              'metadata': <String, Object?>{
+                'headers': <String, String>{
+                  'X-RateLimit-Limit': '20',
+                  'X-RateLimit-Remaining': '0',
+                  'X-RateLimit-Reset': '${reset.millisecondsSinceEpoch}',
+                },
+              },
+            },
+          }),
+        ),
+        secondsFromNow(120),
+      );
+    });
+
+    test('is null without a time, or with one that has passed', () async {
+      // What OpenRouter sends when a free model is busy upstream.
+      expect(
+        await retryAtFor(
+          body: jsonEncode(<String, Object?>{
+            'error': <String, Object?>{
+              'code': 429,
+              'message': 'Provider returned error',
+              'metadata': <String, Object?>{
+                'raw':
+                    'qwen/qwen3.8-27b:free is temporarily rate-limited '
+                    'upstream. Please retry shortly.',
+                'provider_name': 'Chutes',
+              },
+            },
+          }),
+        ),
+        isNull,
+      );
+      expect(
+        await retryAtFor(
+          headers: <String, String>{
+            'x-ratelimit-reset': '${DateTime.utc(2026).millisecondsSinceEpoch}',
+          },
+        ),
+        isNull,
+      );
+    });
+  });
+
   test('429 Retry-After sets retryAt', () async {
     final startedAt = DateTime.now().toUtc();
     final request = postJson(
@@ -304,7 +406,95 @@ void main() {
     );
   });
 
+  test('onHeaders gets the headers of a successful reply', () async {
+    // Without an abort trigger the request is a plain post, and with one
+    // it's sent as a stream.
+    for (final abortTrigger in <Future<void>?>[
+      null,
+      Completer<void>().future,
+    ]) {
+      Map<String, String>? received;
+      await postJson(
+        MockClient(
+          (_) async => http.Response('{}', 200, headers: _quotaHeaders),
+        ),
+        Uri.parse('https://example.com'),
+        headers: <String, String>{},
+        body: <String, Object?>{},
+        abortTrigger: abortTrigger,
+        onHeaders: (headers) => received = headers,
+      );
+      expect(received, _quotaHeaders, reason: 'abortTrigger: $abortTrigger');
+    }
+  });
+
+  test('onHeaders is not called for an error reply', () async {
+    for (final code in <int>[400, 401, 429, 500, 503]) {
+      var called = false;
+      await expectLater(
+        postJson(
+          MockClient(
+            (_) async => http.Response('{}', code, headers: _quotaHeaders),
+          ),
+          Uri.parse('https://example.com'),
+          headers: <String, String>{},
+          body: <String, Object?>{},
+          onHeaders: (_) => called = true,
+        ),
+        throwsA(isA<AiProviderException>()),
+        reason: '$code',
+      );
+      expect(called, isFalse, reason: '$code');
+    }
+  });
+
   group('postEventStream', () {
+    test('onHeaders gets the headers before the first event', () async {
+      Map<String, String>? received;
+      final headersAtEachEvent = <Map<String, String>?>[];
+      await postEventStream(
+        MockClient.streaming(
+          (_, _) async => http.StreamedResponse(
+            _bytes('data: {"n":1}\n\ndata: {"n":2}\n\ndata: [DONE]\n\n'),
+            200,
+            headers: _quotaHeaders,
+          ),
+        ),
+        Uri.parse('https://example.com'),
+        headers: <String, String>{},
+        body: <String, Object?>{},
+        onHeaders: (headers) => received = headers,
+      ).forEach((_) => headersAtEachEvent.add(received));
+      expect(headersAtEachEvent, <Map<String, String>>[
+        _quotaHeaders,
+        _quotaHeaders,
+      ]);
+    });
+
+    test('onHeaders is not called for an error reply', () async {
+      for (final code in <int>[400, 401, 429, 500, 503]) {
+        var called = false;
+        await expectLater(
+          postEventStream(
+            MockClient.streaming(
+              (_, _) async => http.StreamedResponse(
+                _bytes('{}'),
+                code,
+                headers: _quotaHeaders,
+              ),
+            ),
+            Uri.parse('https://example.com'),
+            headers: <String, String>{},
+            body: <String, Object?>{},
+            onHeaders: (_) => called = true,
+          ),
+          emitsError(isA<AiProviderException>()),
+          reason: '$code',
+        );
+        expect(called, isFalse, reason: '$code');
+      }
+    });
+
     test('sends JSON and reads each event until [DONE]', () async {
       late http.BaseRequest sent;
       late String sentBody;
@@ -444,6 +634,12 @@ void main() {
 
 // What OpenAI sends when a project's model allowlist blocks the model.
 const String _modelNotFound = '{"error":{"code":"model_not_found"}}';
+
+// The requests-per-day headers Groq sends with every reply.
+const Map<String, String> _quotaHeaders = <String, String>{
+  'x-ratelimit-limit-requests': '1000',
+  'x-ratelimit-remaining-requests': '999',
+};
 
 Stream<List<int>> _bytes(String text) =>
     Stream<List<int>>.value(utf8.encode(text));
