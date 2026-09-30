@@ -138,7 +138,8 @@ void main() {
   });
 
   test('all exhausted routes produce a reset time', () async {
-    final tracker = UsageTracker(now: () => DateTime.utc(2026, 9, 29, 23));
+    final now = DateTime.utc(2026, 9, 29, 23);
+    final tracker = UsageTracker(now: () => now);
     final exhausted = [
       first.copyWith(dailyLimit: 0),
       second.copyWith(dailyLimit: 0),
@@ -147,6 +148,7 @@ void main() {
       exhausted,
       <AiProviderType, _FakeProvider>{},
       tracker,
+      now: () => now,
     );
 
     await expectLater(
