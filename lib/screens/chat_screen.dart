@@ -15,10 +15,13 @@ import '../services/personality_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/settings_service.dart';
 import '../services/speech_service.dart';
+import '../models/speech_settings.dart';
+import '../services/text_to_speech_service.dart';
 import '../widgets/chat_header.dart';
 import '../widgets/anchored_reply_sliver.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_composer.dart';
+import '../widgets/speakable_text.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
 import 'settings_screen.dart';
@@ -28,6 +31,7 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.chatService,
     required this.speechService,
+    required this.textToSpeechService,
     required this.settingsStore,
     required this.personalityStore,
     required this.keyStore,
@@ -36,6 +40,7 @@ class ChatScreen extends StatefulWidget {
   });
   final ChatService chatService;
   final SpeechService speechService;
+  final TextToSpeechService textToSpeechService;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
@@ -66,7 +71,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool get _busy =>
       _isLoading || _isSending || _isClearing || _historyLoadFailed;
   MessageFormatting _formatting = const MessageFormatting();
+  SpeechSettings _speechSettings = const SpeechSettings();
   bool _showReasoning = false;
+  bool _composerWasSpoken = false;
+  bool _isSpeaking = false;
+  int _speechOutputGeneration = 0;
+  final Set<ChatMessage> _spokenMessages = Set<ChatMessage>.identity();
 
   /// Replies whose reasoning is open. They're kept here rather than in each
   /// bubble, so a reply stays open while new messages arrive or it scrolls
@@ -109,10 +119,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadChatSettings() async {
     final formatting = await widget.settingsStore.loadMessageFormatting();
     final showReasoning = await widget.settingsStore.loadShowReasoning();
+    final speechSettings = await widget.settingsStore.loadSpeechSettings();
     if (mounted) {
       setState(() {
         _formatting = formatting;
         _showReasoning = showReasoning;
+        _speechSettings = speechSettings;
       });
     }
   }
@@ -125,6 +137,12 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _liveReasoningExpanded = !_liveReasoningExpanded);
 
   Future<void> _openSettings() async {
+    await _stopSpeaking();
+    if (!mounted) return;
+    if (_speechState == SpeechServiceState.listening) {
+      await widget.speechService.stopListening();
+      if (!mounted) return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SettingsScreen(
@@ -133,6 +151,8 @@ class _ChatScreenState extends State<ChatScreen> {
           settingsStore: widget.settingsStore,
           personalityStore: widget.personalityStore,
           keyStore: widget.keyStore,
+          speechService: widget.speechService,
+          textToSpeechService: widget.textToSpeechService,
           connectionTester: widget.connectionTester,
           modelLister: widget.modelLister,
         ),
@@ -166,6 +186,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_busy) return;
     setState(() => _isLoading = true);
     _speechGeneration++;
+    await _stopSpeaking();
     try {
       await widget.speechService.stopListening();
       await action();
@@ -374,7 +395,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _busy) return;
-    setState(() => _messages.add(ChatMessage.user(trimmed)));
+    unawaited(_stopSpeaking());
+    final message = ChatMessage.user(trimmed);
+    if (_composerWasSpoken) _spokenMessages.add(message);
+    _composerWasSpoken = false;
+    setState(() => _messages.add(message));
     _requestReply();
   }
 
@@ -433,23 +458,64 @@ class _ChatScreenState extends State<ChatScreen> {
         );
   }
 
-  void _finishReply() => setState(() {
+  void _finishReply() {
     final reply = _liveReply;
-    if (reply != null &&
-        !(_generation?.isStopped == true && reply.text.trim().isEmpty)) {
-      _messages.add(reply);
-      if (_liveReasoningExpanded) _expandedReasoning.add(reply);
+    final shouldSpeak =
+        reply != null &&
+        !(_generation?.isStopped == true && reply.text.trim().isEmpty) &&
+        (_speechSettings.readAloud == ReadAloudMode.always ||
+            (_speechSettings.readAloud == ReadAloudMode.afterSpoken &&
+                _lastUserMessageWasSpoken));
+    setState(() {
+      if (reply != null &&
+          !(_generation?.isStopped == true && reply.text.trim().isEmpty)) {
+        _messages.add(reply);
+        if (_liveReasoningExpanded) _expandedReasoning.add(reply);
+      }
+      if (_generation?.isStopped == true &&
+          (reply == null || reply.text.trim().isEmpty)) {
+        _streamLayoutRevision++;
+      }
+      _liveReply = null;
+      _replySubscription = null;
+      _generation = null;
+      _isStopping = false;
+      _isSending = false;
+    });
+    if (shouldSpeak) unawaited(_speak(reply.text));
+  }
+
+  bool get _lastUserMessageWasSpoken {
+    for (final message in _messages.reversed) {
+      if (message.isUser) return _spokenMessages.contains(message);
     }
-    if (_generation?.isStopped == true &&
-        (reply == null || reply.text.trim().isEmpty)) {
-      _streamLayoutRevision++;
+    return false;
+  }
+
+  Future<void> _speak(String answer) async {
+    final text = speakableText(answer, formatting: _formatting);
+    if (text.isEmpty) return;
+    final generation = ++_speechOutputGeneration;
+    if (mounted) setState(() => _isSpeaking = true);
+    try {
+      await widget.textToSpeechService.speak(
+        text,
+        voiceName: _speechSettings.voiceName,
+        voiceLocale: _speechSettings.voiceLocale,
+        rate: _speechSettings.rate,
+      );
+    } finally {
+      if (mounted && generation == _speechOutputGeneration) {
+        setState(() => _isSpeaking = false);
+      }
     }
-    _liveReply = null;
-    _replySubscription = null;
-    _generation = null;
-    _isStopping = false;
-    _isSending = false;
-  });
+  }
+
+  Future<void> _stopSpeaking() async {
+    _speechOutputGeneration++;
+    if (_isSpeaking && mounted) setState(() => _isSpeaking = false);
+    await widget.textToSpeechService.stop();
+  }
 
   /// The half-finished reply disappears, and the user's message stays so
   /// Retry can ask again.
@@ -527,21 +593,40 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _toggleSpeech() async {
+    if (_isSpeaking) {
+      await _stopSpeaking();
+      return;
+    }
     if (_speechState == SpeechServiceState.listening) {
       await widget.speechService.stopListening();
       return;
+    }
+    if (_isSpeaking) {
+      await _stopSpeaking();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
     final generation = _speechGeneration;
     await widget.speechService.startListening(
       onText: (text) {
         if (!mounted || generation != _speechGeneration) return;
+        if (text.trim().isNotEmpty) _composerWasSpoken = true;
         _composerController.value = TextEditingValue(
           text: text,
           selection: TextSelection.collapsed(offset: text.length),
         );
         setState(() {});
       },
+      onFinalResult: (text) {
+        if (!mounted || generation != _speechGeneration) return;
+        final trimmed = text.trim();
+        if (!_speechSettings.sendWhenDone || trimmed.isEmpty || _busy) return;
+        _composerController.clear();
+        _composerWasSpoken = true;
+        _send(trimmed);
+      },
       onStateChanged: _handleSpeechState,
+      localeId: _speechSettings.languageId,
+      sendWhenDone: _speechSettings.sendWhenDone,
     );
   }
 
@@ -569,6 +654,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // Leaving the screen aborts transport but does not commit unfinished text.
     _generation?.stop(discardPartial: true);
     unawaited(_replySubscription?.cancel());
+    unawaited(widget.textToSpeechService.dispose());
     _chatScroll.dispose();
     _composerController.dispose();
     unawaited(widget.speechService.dispose());
@@ -667,6 +753,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                                       _liveReasoningExpanded,
                                                   onReasoningToggle:
                                                       _toggleLiveReasoning,
+                                                  onReadAloud: () =>
+                                                      _speak(liveReply.text),
                                                 ),
                                               )
                                             : _isSending
@@ -714,6 +802,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                               .contains(message),
                                           onReasoningToggle: () =>
                                               _toggleReasoning(message),
+                                          onReadAloud: message.isUser
+                                              ? null
+                                              : () => _speak(message.text),
                                         );
                                       },
                                     ),
@@ -736,6 +827,25 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
               ),
+              if (_isSpeaking)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      const Icon(Icons.volume_up_rounded, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('Speaking…'),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        key: const Key('stopSpeakingButton'),
+                        onPressed: _stopSpeaking,
+                        icon: const Icon(Icons.stop_rounded),
+                        label: const Text('Stop'),
+                      ),
+                    ],
+                  ),
+                ),
               MessageComposer(
                 controller: _composerController,
                 onSend: _send,

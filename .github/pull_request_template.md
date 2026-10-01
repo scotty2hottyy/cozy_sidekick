@@ -1,10 +1,10 @@
 Closes #
 
 Implemented:
-- 
+- Add details
 
 Validation:
-- 
+- Add details
 
 ## Definition of Done
 - [ ] `flutter analyze` reports no issues, `flutter test` passes, and CI is green

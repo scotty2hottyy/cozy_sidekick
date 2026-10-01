@@ -8,12 +8,14 @@ import 'services/personality_service.dart';
 import 'services/provider_connection_service.dart';
 import 'services/settings_service.dart';
 import 'services/speech_service.dart';
+import 'services/text_to_speech_service.dart';
 
 class CozySidekickApp extends StatelessWidget {
   const CozySidekickApp({
     super.key,
     required this.chatService,
     required this.speechService,
+    required this.textToSpeechService,
     required this.settingsStore,
     required this.personalityStore,
     required this.keyStore,
@@ -22,6 +24,7 @@ class CozySidekickApp extends StatelessWidget {
   });
   final ChatService chatService;
   final SpeechService speechService;
+  final TextToSpeechService textToSpeechService;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
@@ -41,6 +44,7 @@ class CozySidekickApp extends StatelessWidget {
     home: ChatScreen(
       chatService: chatService,
       speechService: speechService,
+      textToSpeechService: textToSpeechService,
       settingsStore: settingsStore,
       personalityStore: personalityStore,
       keyStore: keyStore,

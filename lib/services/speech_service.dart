@@ -10,11 +10,22 @@ enum SpeechServiceState {
   error,
 }
 
+class SpeechLanguage {
+  const SpeechLanguage({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
 abstract interface class SpeechService {
   SpeechServiceState get state;
+  Future<List<SpeechLanguage>> locales();
   Future<SpeechServiceState> startListening({
     required ValueChanged<String> onText,
+    required ValueChanged<String> onFinalResult,
     required ValueChanged<SpeechServiceState> onStateChanged,
+    String? localeId,
+    bool sendWhenDone = false,
   });
   Future<void> stopListening();
   Future<void> dispose();
@@ -32,9 +43,28 @@ class DeviceSpeechService implements SpeechService {
   SpeechServiceState get state => _state;
 
   @override
+  Future<List<SpeechLanguage>> locales() async {
+    try {
+      final locales = await _speechToText.locales().timeout(
+        const Duration(seconds: 3),
+      );
+      return locales
+          .map(
+            (locale) => SpeechLanguage(id: locale.localeId, name: locale.name),
+          )
+          .toList();
+    } on Object {
+      return const <SpeechLanguage>[];
+    }
+  }
+
+  @override
   Future<SpeechServiceState> startListening({
     required ValueChanged<String> onText,
+    required ValueChanged<String> onFinalResult,
     required ValueChanged<SpeechServiceState> onStateChanged,
+    String? localeId,
+    bool sendWhenDone = false,
   }) async {
     _onStateChanged = onStateChanged;
     try {
@@ -54,11 +84,17 @@ class DeviceSpeechService implements SpeechService {
         _initialized = true;
       }
       await _speechToText.listen(
-        onResult: (result) => onText(result.recognizedWords),
+        onResult: (result) {
+          onText(result.recognizedWords);
+          if (result.finalResult) onFinalResult(result.recognizedWords);
+        },
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: true,
           listenMode: ListenMode.dictation,
+          localeId: localeId,
+          pauseFor: sendWhenDone ? const Duration(seconds: 3) : null,
+          autoPunctuation: true,
         ),
       );
       _setState(SpeechServiceState.listening);

@@ -5,11 +5,14 @@ import '../services/model_list_service.dart';
 import '../services/provider_connection_service.dart';
 import '../services/personality_service.dart';
 import '../services/settings_service.dart';
+import '../services/speech_service.dart';
+import '../services/text_to_speech_service.dart';
 import 'ai_settings_screen.dart';
 import 'api_credentials_screen.dart';
 import 'appearance_screen.dart';
 import 'chat_history_screen.dart';
 import 'personality_screen.dart';
+import 'voice_speech_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
@@ -17,6 +20,8 @@ class SettingsScreen extends StatelessWidget {
     required this.settingsStore,
     required this.personalityStore,
     required this.keyStore,
+    required this.speechService,
+    required this.textToSpeechService,
     required this.connectionTester,
     required this.modelLister,
     required this.onClearChat,
@@ -27,6 +32,8 @@ class SettingsScreen extends StatelessWidget {
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final ApiKeyStore keyStore;
+  final SpeechService speechService;
+  final TextToSpeechService textToSpeechService;
   final ConnectionTester connectionTester;
   final ModelLister modelLister;
 
@@ -68,7 +75,7 @@ class SettingsScreen extends StatelessWidget {
               context,
               Icons.auto_awesome_rounded,
               'Personality',
-              'Customize voice, tone, and instructions',
+              'Customize tone and instructions',
               destination: PersonalityScreen(
                 personalityStore: personalityStore,
               ),
@@ -78,6 +85,11 @@ class SettingsScreen extends StatelessWidget {
               Icons.record_voice_over_rounded,
               'Voice & Speech',
               'Configure speech input and output',
+              destination: VoiceSpeechScreen(
+                settingsStore: settingsStore,
+                speechService: speechService,
+                textToSpeechService: textToSpeechService,
+              ),
             ),
             const SizedBox(height: 24),
             _section(context, 'App'),

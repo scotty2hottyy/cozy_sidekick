@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ai/ai_provider.dart';
 import '../models/message_formatting.dart';
 import '../models/quota_route.dart';
+import '../models/speech_settings.dart';
 
 abstract interface class AppSettingsStore {
   Future<AiProviderType> loadSelectedProvider();
@@ -25,6 +26,8 @@ abstract interface class AppSettingsStore {
   /// default, because reasoning can be long.
   Future<bool> loadShowReasoning();
   Future<void> saveShowReasoning(bool value);
+  Future<SpeechSettings> loadSpeechSettings();
+  Future<void> saveSpeechSettings(SpeechSettings settings);
   Future<bool> loadAutoRouteEnabled();
   Future<void> saveAutoRouteEnabled(bool value);
   Future<List<QuotaRoute>> loadQuotaRoutes();
@@ -38,6 +41,12 @@ class SettingsService implements AppSettingsStore {
   static const String _showMathKey = 'chat.show_math';
   static const String _dollarMathKey = 'chat.dollar_math';
   static const String _showReasoningKey = 'chat.show_reasoning';
+  static const String _speechLanguageKey = 'speech.language';
+  static const String _speechSendWhenDoneKey = 'speech.send_when_done';
+  static const String _speechReadAloudKey = 'speech.read_aloud';
+  static const String _speechVoiceNameKey = 'speech.voice_name';
+  static const String _speechVoiceLocaleKey = 'speech.voice_locale';
+  static const String _speechRateKey = 'speech.rate';
   static const String _autoRouteKey = 'ai.auto_route';
   static const String _quotaRoutesKey = 'ai.quota_routes';
   static String _modelKey(AiProviderType provider) =>
@@ -121,6 +130,41 @@ class SettingsService implements AppSettingsStore {
   }
 
   @override
+  Future<SpeechSettings> loadSpeechSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = ReadAloudMode.values
+        .asNameMap()[prefs.getString(_speechReadAloudKey)];
+    return SpeechSettings(
+      languageId: prefs.getString(_speechLanguageKey),
+      sendWhenDone: prefs.getBool(_speechSendWhenDoneKey) ?? false,
+      readAloud: mode ?? ReadAloudMode.off,
+      voiceName: prefs.getString(_speechVoiceNameKey),
+      voiceLocale: prefs.getString(_speechVoiceLocaleKey),
+      rate: prefs.getDouble(_speechRateKey) ?? 0.5,
+    );
+  }
+
+  @override
+  Future<void> saveSpeechSettings(SpeechSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (settings.languageId == null) {
+      await prefs.remove(_speechLanguageKey);
+    } else {
+      await prefs.setString(_speechLanguageKey, settings.languageId!);
+    }
+    await prefs.setBool(_speechSendWhenDoneKey, settings.sendWhenDone);
+    await prefs.setString(_speechReadAloudKey, settings.readAloud.name);
+    if (settings.voiceName == null || settings.voiceLocale == null) {
+      await prefs.remove(_speechVoiceNameKey);
+      await prefs.remove(_speechVoiceLocaleKey);
+    } else {
+      await prefs.setString(_speechVoiceNameKey, settings.voiceName!);
+      await prefs.setString(_speechVoiceLocaleKey, settings.voiceLocale!);
+    }
+    await prefs.setDouble(_speechRateKey, settings.rate);
+  }
+
+  @override
   Future<bool> loadAutoRouteEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_autoRouteKey) ?? false;
@@ -173,6 +217,7 @@ class InMemorySettingsStore implements AppSettingsStore {
     this.customServerBaseUrl = '',
     this.messageFormatting = const MessageFormatting(),
     this.showReasoning = false,
+    this.speechSettings = const SpeechSettings(),
     this.autoRouteEnabled = false,
     List<QuotaRoute>? quotaRoutes,
   }) : models = <AiProviderType, String>{...?models},
@@ -185,6 +230,7 @@ class InMemorySettingsStore implements AppSettingsStore {
   String customServerBaseUrl;
   MessageFormatting messageFormatting;
   bool showReasoning;
+  SpeechSettings speechSettings;
   bool autoRouteEnabled;
   List<QuotaRoute> quotaRoutes;
 
@@ -228,6 +274,11 @@ class InMemorySettingsStore implements AppSettingsStore {
   @override
   Future<void> saveShowReasoning(bool value) async => showReasoning = value;
 
+  @override
+  Future<SpeechSettings> loadSpeechSettings() async => speechSettings;
+  @override
+  Future<void> saveSpeechSettings(SpeechSettings settings) async =>
+      speechSettings = settings;
   @override
   Future<bool> loadAutoRouteEnabled() async => autoRouteEnabled;
   @override
