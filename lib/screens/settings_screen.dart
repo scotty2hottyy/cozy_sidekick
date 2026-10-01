@@ -55,6 +55,7 @@ class SettingsScreen extends StatelessWidget {
               destination: AiSettingsScreen(
                 settingsStore: settingsStore,
                 modelLister: modelLister,
+                keyStore: keyStore,
               ),
             ),
             _row(

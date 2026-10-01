@@ -1,5 +1,6 @@
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/models/message_formatting.dart';
+import 'package:cozy_sidekick/models/quota_route.dart';
 import 'package:cozy_sidekick/models/speech_settings.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -105,6 +106,28 @@ void main() {
     expect(prefs.getString('speech.voice_locale'), 'fr-FR');
     expect(prefs.getDouble('speech.rate'), 0.65);
   });
+  test(
+    'auto-routing and ordered routes persist while routing defaults off',
+    () async {
+      final first = SettingsService();
+      expect(await first.loadAutoRouteEnabled(), isFalse);
+      expect(await first.loadQuotaRoutes(), QuotaRoute.defaults);
+      final reordered = [
+        QuotaRoute.defaults[1],
+        QuotaRoute.defaults[0].copyWith(
+          model: 'openrouter/custom',
+          userLimit: 7,
+        ),
+        QuotaRoute.defaults[2],
+      ];
+      await first.saveAutoRouteEnabled(true);
+      await first.saveQuotaRoutes(reordered);
+
+      final afterRestart = SettingsService();
+      expect(await afterRestart.loadAutoRouteEnabled(), isTrue);
+      expect(await afterRestart.loadQuotaRoutes(), reordered);
+    },
+  );
 
   test('accepts http/https and rejects invalid custom URLs', () {
     expect(SettingsService.isValidBaseUrl('https://example.com'), isTrue);

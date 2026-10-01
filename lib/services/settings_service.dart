@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ai/ai_provider.dart';
 import '../models/message_formatting.dart';
+import '../models/quota_route.dart';
 import '../models/speech_settings.dart';
 
 abstract interface class AppSettingsStore {
@@ -25,6 +28,10 @@ abstract interface class AppSettingsStore {
   Future<void> saveShowReasoning(bool value);
   Future<SpeechSettings> loadSpeechSettings();
   Future<void> saveSpeechSettings(SpeechSettings settings);
+  Future<bool> loadAutoRouteEnabled();
+  Future<void> saveAutoRouteEnabled(bool value);
+  Future<List<QuotaRoute>> loadQuotaRoutes();
+  Future<void> saveQuotaRoutes(List<QuotaRoute> routes);
 }
 
 class SettingsService implements AppSettingsStore {
@@ -40,6 +47,8 @@ class SettingsService implements AppSettingsStore {
   static const String _speechVoiceNameKey = 'speech.voice_name';
   static const String _speechVoiceLocaleKey = 'speech.voice_locale';
   static const String _speechRateKey = 'speech.rate';
+  static const String _autoRouteKey = 'ai.auto_route';
+  static const String _quotaRoutesKey = 'ai.quota_routes';
   static String _modelKey(AiProviderType provider) =>
       'ai.model.${provider.name}';
 
@@ -123,9 +132,8 @@ class SettingsService implements AppSettingsStore {
   @override
   Future<SpeechSettings> loadSpeechSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final mode = ReadAloudMode.values.asNameMap()[
-      prefs.getString(_speechReadAloudKey)
-    ];
+    final mode = ReadAloudMode.values
+        .asNameMap()[prefs.getString(_speechReadAloudKey)];
     return SpeechSettings(
       languageId: prefs.getString(_speechLanguageKey),
       sendWhenDone: prefs.getBool(_speechSendWhenDoneKey) ?? false,
@@ -156,6 +164,44 @@ class SettingsService implements AppSettingsStore {
     await prefs.setDouble(_speechRateKey, settings.rate);
   }
 
+  @override
+  Future<bool> loadAutoRouteEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_autoRouteKey) ?? false;
+  }
+
+  @override
+  Future<void> saveAutoRouteEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoRouteKey, value);
+  }
+
+  @override
+  Future<List<QuotaRoute>> loadQuotaRoutes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getString(_quotaRoutesKey);
+    if (encoded == null) return List<QuotaRoute>.of(QuotaRoute.defaults);
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! List) return List<QuotaRoute>.of(QuotaRoute.defaults);
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(QuotaRoute.fromJson)
+          .toList();
+    } on Object {
+      return List<QuotaRoute>.of(QuotaRoute.defaults);
+    }
+  }
+
+  @override
+  Future<void> saveQuotaRoutes(List<QuotaRoute> routes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _quotaRoutesKey,
+      jsonEncode(routes.map((route) => route.toJson()).toList()),
+    );
+  }
+
   static bool isValidBaseUrl(String value) {
     final uri = Uri.tryParse(value.trim());
     return uri != null &&
@@ -172,7 +218,10 @@ class InMemorySettingsStore implements AppSettingsStore {
     this.messageFormatting = const MessageFormatting(),
     this.showReasoning = false,
     this.speechSettings = const SpeechSettings(),
-  }) : models = <AiProviderType, String>{...?models};
+    this.autoRouteEnabled = false,
+    List<QuotaRoute>? quotaRoutes,
+  }) : models = <AiProviderType, String>{...?models},
+       quotaRoutes = List<QuotaRoute>.of(quotaRoutes ?? QuotaRoute.defaults);
 
   AiProviderType selectedProvider;
 
@@ -182,6 +231,8 @@ class InMemorySettingsStore implements AppSettingsStore {
   MessageFormatting messageFormatting;
   bool showReasoning;
   SpeechSettings speechSettings;
+  bool autoRouteEnabled;
+  List<QuotaRoute> quotaRoutes;
 
   @override
   Future<AiProviderType> loadSelectedProvider() async => selectedProvider;
@@ -228,4 +279,15 @@ class InMemorySettingsStore implements AppSettingsStore {
   @override
   Future<void> saveSpeechSettings(SpeechSettings settings) async =>
       speechSettings = settings;
+  @override
+  Future<bool> loadAutoRouteEnabled() async => autoRouteEnabled;
+  @override
+  Future<void> saveAutoRouteEnabled(bool value) async =>
+      autoRouteEnabled = value;
+  @override
+  Future<List<QuotaRoute>> loadQuotaRoutes() async =>
+      List<QuotaRoute>.unmodifiable(quotaRoutes);
+  @override
+  Future<void> saveQuotaRoutes(List<QuotaRoute> routes) async =>
+      quotaRoutes = List<QuotaRoute>.of(routes);
 }

@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 
 import '../models/chat_message.dart';
+import '../models/free_quota.dart';
 import '../services/api_key_store.dart';
 import 'ai_provider.dart';
 import 'http_helper.dart';
@@ -13,6 +14,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     required this.keyStore,
     this.extraHeaders = const <String, String>{},
     this.publicModelList = false,
+    this.freeQuotaFromHeaders,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
@@ -26,6 +28,10 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   /// Whether [listModels] works without a key.
   final bool publicModelList;
+
+  /// Reads the free quota from a reply's headers, for providers that report
+  /// it there, like Groq. Null for the others.
+  final FreeQuota? Function(Map<String, String> headers)? freeQuotaFromHeaders;
   final http.Client _client;
 
   @override
@@ -35,14 +41,22 @@ class OpenAiCompatibleProvider implements AiProvider {
     Future<void>? abortTrigger,
     String? model,
   }) async {
+    FreeQuota? freeQuota;
     final json = await postJson(
       _client,
       _url('chat/completions'),
       headers: await _headers(),
       abortTrigger: abortTrigger,
       body: buildRequestBody(systemPrompt, messages, model: model),
+      onHeaders: (headers) => freeQuota = freeQuotaFromHeaders?.call(headers),
     );
-    return parseReply(json);
+    final reply = parseReply(json);
+    return AiReply(
+      text: reply.text,
+      reasoning: reply.reasoning,
+      totalTokens: reply.totalTokens,
+      freeQuota: freeQuota,
+    );
   }
 
   @override
@@ -52,6 +66,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     Future<void>? abortTrigger,
     String? model,
   }) async* {
+    FreeQuota? freeQuota;
     final events = postEventStream(
       _client,
       _url('chat/completions'),
@@ -60,7 +75,9 @@ class OpenAiCompatibleProvider implements AiProvider {
       body: <String, Object?>{
         ...buildRequestBody(systemPrompt, messages, model: model),
         'stream': true,
+        'stream_options': <String, bool>{'include_usage': true},
       },
+      onHeaders: (headers) => freeQuota = freeQuotaFromHeaders?.call(headers),
     );
 
     final content = StringBuffer();
@@ -70,6 +87,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     final reasoning = StringBuffer();
     final reasoningDetails = StringBuffer();
     final reasoningContent = StringBuffer();
+    int? totalTokens;
 
     String? reasoningSoFar() =>
         _nonBlank('$reasoning') ??
@@ -79,6 +97,10 @@ class OpenAiCompatibleProvider implements AiProvider {
     var shown = const AiReply(text: '');
 
     await for (final event in events) {
+      final usage = event['usage'];
+      if (usage is Map<String, dynamic> && usage['total_tokens'] is int) {
+        totalTokens = usage['total_tokens'] as int;
+      }
       final delta = _delta(event);
       if (delta == null) continue;
 
@@ -98,12 +120,16 @@ class OpenAiCompatibleProvider implements AiProvider {
       }
     }
 
-    final finished = _withReasoning('$content', reasoningSoFar());
+    final parsed = _withReasoning('$content', reasoningSoFar());
+    final finished = AiReply(
+      text: parsed.text,
+      reasoning: parsed.reasoning,
+      totalTokens: totalTokens,
+      freeQuota: freeQuota,
+    );
 
     if (finished.text.isEmpty) {
-      throw const BadResponseException(
-        'The stream ended without an answer',
-      );
+      throw const BadResponseException('The stream ended without an answer');
     }
 
     if (finished != shown) yield finished;
@@ -111,10 +137,12 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   /// The IDs of the chat models at `{baseUrl}/models`, sorted. Models that
   /// can't chat, like speech, image and embedding models, are left out.
+  /// With [freeOnly], so are models that aren't free, as OpenRouter prices
+  /// them.
   ///
   /// Throws [MissingApiKeyException] when the list needs a key and none is
   /// saved.
-  Future<List<String>> listModels() async {
+  Future<List<String>> listModels({bool freeOnly = false}) async {
     final json = await getJson(
       _client,
       _url('models'),
@@ -125,7 +153,9 @@ class OpenAiCompatibleProvider implements AiProvider {
     final ids = <String>{
       if (data is List)
         for (final entry in data)
-          if (entry is Map<String, dynamic> && _isChatModel(entry))
+          if (entry is Map<String, dynamic> &&
+              _isChatModel(entry) &&
+              (!freeOnly || _isFreeModel(entry)))
             entry['id'] as String,
     };
 
@@ -149,10 +179,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       return extraHeaders;
     }
 
-    return <String, String>{
-      'Authorization': 'Bearer $apiKey',
-      ...extraHeaders,
-    };
+    return <String, String>{'Authorization': 'Bearer $apiKey', ...extraHeaders};
   }
 
   /// Sends only each message's text. Reasoning is never sent back, because
@@ -161,29 +188,21 @@ class OpenAiCompatibleProvider implements AiProvider {
     String systemPrompt,
     List<ChatMessage> messages, {
     String? model,
-  }) =>
-      <String, Object?>{
-        'model': model ?? this.model,
-        'messages': <Map<String, String>>[
-          <String, String>{
-            'role': 'system',
-            'content': systemPrompt,
-          },
-          for (final message in messages)
-            <String, String>{
-              'role': message.role.name,
-              'content': message.text,
-            },
-        ],
-      };
+  }) => <String, Object?>{
+    'model': model ?? this.model,
+    'messages': <Map<String, String>>[
+      <String, String>{'role': 'system', 'content': systemPrompt},
+      for (final message in messages)
+        <String, String>{'role': message.role.name, 'content': message.text},
+    ],
+  };
 
   AiReply parseReply(Map<String, dynamic> json) {
     final choices = json['choices'];
 
     if (choices is List && choices.isNotEmpty) {
       final first = choices.first;
-      final message =
-          first is Map<String, dynamic> ? first['message'] : null;
+      final message = first is Map<String, dynamic> ? first['message'] : null;
 
       if (message is Map<String, dynamic>) {
         final content = message['content'];
@@ -195,14 +214,22 @@ class OpenAiCompatibleProvider implements AiProvider {
                 _nonBlank(message['reasoning_content']),
           );
 
-          if (reply.text.isNotEmpty) return reply;
+          if (reply.text.isNotEmpty) {
+            final usage = json['usage'];
+            final totalTokens = usage is Map<String, dynamic>
+                ? usage['total_tokens']
+                : null;
+            return AiReply(
+              text: reply.text,
+              reasoning: reply.reasoning,
+              totalTokens: totalTokens is int ? totalTokens : null,
+            );
+          }
         }
       }
     }
 
-    throw const BadResponseException(
-      'Missing choices[0].message.content',
-    );
+    throw const BadResponseException('Missing choices[0].message.content');
   }
 
   /// Splits [content] into the answer and the model's reasoning.
@@ -216,10 +243,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     final end = content.lastIndexOf(_thinkEnd);
 
     if (reasoning != null || end == -1) {
-      return AiReply(
-        text: content.trim(),
-        reasoning: reasoning,
-      );
+      return AiReply(text: content.trim(), reasoning: reasoning);
     }
 
     var thinking = content.substring(0, end).trimLeft();
@@ -237,10 +261,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// Like [_withReasoning], for a reply that's still arriving. Until a
   /// `<think>` at the start of [content] is closed, everything after it is
   /// reasoning so far.
-  static AiReply _withReasoningSoFar(
-    String content,
-    String? reasoning,
-  ) {
+  static AiReply _withReasoningSoFar(String content, String? reasoning) {
     final start = content.trimLeft();
 
     if (reasoning == null &&
@@ -248,9 +269,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         !content.contains(_thinkEnd)) {
       return AiReply(
         text: '',
-        reasoning: _nonBlank(
-          start.substring(_thinkStart.length),
-        ),
+        reasoning: _nonBlank(start.substring(_thinkStart.length)),
       );
     }
 
@@ -265,19 +284,15 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// Throws [ProviderUnavailableException] for a piece that reports an error.
   /// OpenRouter sends one, with `"finish_reason": "error"`, when a reply fails
   /// after it has started.
-  static Map<String, dynamic>? _delta(
-    Map<String, dynamic> event,
-  ) {
+  static Map<String, dynamic>? _delta(Map<String, dynamic> event) {
     final choices = event['choices'];
-    final choice =
-        choices is List && choices.isNotEmpty ? choices.first : null;
+    final choice = choices is List && choices.isNotEmpty ? choices.first : null;
     final error = event['error'];
 
     if (error != null ||
         (choice is Map<String, dynamic> &&
             choice['finish_reason'] == 'error')) {
-      final message =
-          error is Map<String, dynamic> ? error['message'] : null;
+      final message = error is Map<String, dynamic> ? error['message'] : null;
 
       throw ProviderUnavailableException(
         'Error during the stream'
@@ -285,8 +300,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       );
     }
 
-    final delta =
-        choice is Map<String, dynamic> ? choice['delta'] : null;
+    final delta = choice is Map<String, dynamic> ? choice['delta'] : null;
 
     return delta is Map<String, dynamic> ? delta : null;
   }
@@ -301,14 +315,11 @@ class OpenAiCompatibleProvider implements AiProvider {
       for (final detail in details) {
         if (detail is! Map<String, dynamic>) continue;
 
-        _append(
-          text,
-          switch (detail['type']) {
-            'reasoning.text' => detail['text'],
-            'reasoning.summary' => detail['summary'],
-            _ => null,
-          },
-        );
+        _append(text, switch (detail['type']) {
+          'reasoning.text' => detail['text'],
+          'reasoning.summary' => detail['summary'],
+          _ => null,
+        });
       }
     }
 
@@ -322,9 +333,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// [value] without surrounding whitespace, or null when it isn't a string
   /// with some text in it.
   static String? _nonBlank(Object? value) =>
-      value is String && value.trim().isNotEmpty
-          ? value.trim()
-          : null;
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
 
   /// Whether [entry], one model in a `/models` list, is one this app can chat
   /// with.
@@ -351,14 +360,41 @@ class OpenAiCompatibleProvider implements AiProvider {
       return outputs is! List || outputs.contains('text');
     }
 
-    return !id
-        .toLowerCase()
-        .split(RegExp(r'[-/._:]'))
-        .any(_nonChatWords.contains);
+    return !_words(id).any(_nonChatWords.contains);
   }
 
-  /// Words in the IDs of OpenAI and Groq models that can't chat, or only
-  /// through other APIs.
+  /// Whether [entry] costs nothing: OpenRouter's `:free` models, and its
+  /// `openrouter/free` router, which picks one of them. Other models priced
+  /// at 0, like OpenRouter's stealth and music models, are left out: the
+  /// music models bill per song, and neither is covered by the free quota.
+  ///
+  /// Models that only check text for safety are left out too, since they
+  /// can't chat.
+  static bool _isFreeModel(Map<String, dynamic> entry) {
+    final id = entry['id'] as String;
+    final pricing = entry['pricing'];
+
+    if (pricing is! Map<String, dynamic>) return false;
+
+    // An unlisted price is free. A router's price of -1 isn't.
+    bool free(String key) {
+      final price = pricing[key];
+      return price == null || double.tryParse('$price') == 0;
+    }
+
+    return (id.endsWith(':free') || id == 'openrouter/free') &&
+        free('prompt') &&
+        free('completion') &&
+        free('request') &&
+        !_words(id).any(_nonChatWords.contains);
+  }
+
+  static Iterable<String> _words(String id) =>
+      id.toLowerCase().split(RegExp(r'[-/._:]'));
+
+  /// Words in the IDs of models that can't chat, or only through other APIs.
+  /// OpenAI and Groq don't say what their models write, and some free
+  /// models only check text for safety.
   static const Set<String> _nonChatWords = <String>{
     'audio',
     'babbage',
@@ -373,6 +409,8 @@ class OpenAiCompatibleProvider implements AiProvider {
     'moderation',
     'orpheus',
     'realtime',
+    'safeguard',
+    'safety',
     'sora',
     'transcribe',
     'tts',

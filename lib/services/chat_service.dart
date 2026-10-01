@@ -1,10 +1,12 @@
 import '../ai/ai_provider.dart';
+import '../ai/auto_router.dart';
 import '../models/chat_message.dart';
 import 'conversation_store.dart';
 import 'conversation_service.dart';
 import 'personality_service.dart';
 import 'settings_service.dart';
 import 'generation_control.dart';
+import 'usage_tracker.dart';
 
 class ChatService {
   ChatService({
@@ -12,13 +14,16 @@ class ChatService {
     required this.personalityStore,
     required ConversationStore conversationStore,
     required Map<AiProviderType, AiProvider> providers,
+    UsageTracker? usageTracker,
   }) : conversations = ConversationService(conversationStore),
-       _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers);
+       _providers = Map<AiProviderType, AiProvider>.unmodifiable(providers),
+       _usageTracker = usageTracker ?? UsageTracker();
 
   final ConversationService conversations;
   final AppSettingsStore settingsStore;
   final PersonalityStore personalityStore;
   final Map<AiProviderType, AiProvider> _providers;
+  final UsageTracker _usageTracker;
 
   /// Added to the system prompt while math is shown, so models use the
   /// delimiters that render safely. Small free models don't always follow it.
@@ -70,7 +75,14 @@ class ChatService {
 
     try {
       final selected = await settingsStore.loadSelectedProvider();
-      final provider = _providers[selected];
+      final autoRouteEnabled = await settingsStore.loadAutoRouteEnabled();
+      final provider = autoRouteEnabled
+          ? AutoRouter(
+              providers: _providers,
+              loadRoutes: settingsStore.loadQuotaRoutes,
+              usageTracker: _usageTracker,
+            )
+          : _providers[selected];
 
       if (provider == null) {
         throw ProviderConfigurationException(
@@ -91,7 +103,9 @@ class ChatService {
         messages: snapshot.length > 20
             ? snapshot.sublist(snapshot.length - 20)
             : snapshot,
-        model: await settingsStore.loadModel(selected),
+        model: autoRouteEnabled
+            ? null
+            : await settingsStore.loadModel(selected),
       );
 
       final createdAt = DateTime.now();
@@ -126,13 +140,9 @@ class ChatService {
       throw const BadResponseException('The provider sent no reply');
     }
 
-    await conversations.saveMessages(
-      originId,
-      <ChatMessage>[
-        ...snapshot,
-        message,
-      ],
-      expectedRevision: revision,
-    );
+    await conversations.saveMessages(originId, <ChatMessage>[
+      ...snapshot,
+      message,
+    ], expectedRevision: revision);
   }
 }

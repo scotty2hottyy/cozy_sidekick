@@ -219,6 +219,32 @@ void main() {
     ]);
   });
 
+  test('parses total token usage from a completed reply', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.openRouter, 'key');
+    final provider = OpenAiCompatibleProvider(
+      type: AiProviderType.openRouter,
+      baseUrl: 'https://example.com/v1',
+      model: 'test-model',
+      keyStore: keys,
+      client: MockClient(
+        (_) async => http.Response(
+          '{"choices":[{"message":{"content":"Hello"}}],'
+          '"usage":{"total_tokens":42}}',
+          200,
+        ),
+      ),
+    );
+
+    expect(
+      await provider.sendChat(
+        systemPrompt: 'system',
+        messages: <ChatMessage>[ChatMessage.user('Hi')],
+      ),
+      const AiReply(text: 'Hello', totalTokens: 42),
+    );
+  });
+
   group('model list', () {
     late http.Request listed;
     var requests = 0;
@@ -326,6 +352,96 @@ void main() {
         'openai/gpt-6-luna',
         'qwen/qwen3.8-27b:free',
       ]);
+    });
+
+    group('free only', () {
+      /// An OpenRouter model that writes [outputs], at [price] for each
+      /// part of a request.
+      Map<String, Object?> priced(
+        String id,
+        String price, {
+        List<String> outputs = const <String>['text'],
+      }) => <String, Object?>{
+        'id': id,
+        'architecture': <String, Object?>{'output_modalities': outputs},
+        'pricing': <String, Object?>{
+          'prompt': price,
+          'completion': price,
+          'request': price,
+        },
+      };
+
+      // Shaped like OpenRouter's list.
+      final openRouterModels = <Map<String, Object?>>[
+        priced('qwen/qwen3.8-27b:free', '0'),
+        priced('openrouter/free', '0'),
+        // The auto router's price of -1 means it varies, not that it's free.
+        priced('openrouter/auto', '-1'),
+        // Music models are priced at 0 but bill per song.
+        priced(
+          'google/lyria-3-pro-preview',
+          '0',
+          outputs: <String>['text', 'audio'],
+        ),
+        // Stealth models are priced at 0 but aren't in the free quota.
+        priced('openrouter/sherlock-alpha', '0'),
+        // It only checks text for safety, so it can't chat.
+        priced('nvidia/nemotron-3.5-content-safety:free', '0'),
+        priced('anthropic/claude-sonnet-5.5', '0.000003'),
+      ];
+
+      test(
+        "keeps only :free chat models and OpenRouter's free router",
+        () async {
+          final provider = await listing(openRouterModels);
+          expect(await provider.listModels(freeOnly: true), <String>[
+            'openrouter/free',
+            'qwen/qwen3.8-27b:free',
+          ]);
+        },
+      );
+
+      test('a missing price is free, but a missing pricing is not', () async {
+        final provider = await listing(<Map<String, Object?>>[
+          <String, Object?>{
+            'id': 'z-ai/glm-5:free',
+            'pricing': <String, Object?>{'prompt': '0'},
+          },
+          <String, Object?>{'id': 'deepseek/deepseek-v4-flash:free'},
+          <String, Object?>{
+            'id': 'meta-llama/llama-5-8b:free',
+            'pricing': <String, Object?>{'prompt': '0', 'completion': '0.1'},
+          },
+        ]);
+        expect(await provider.listModels(freeOnly: true), <String>[
+          'z-ai/glm-5:free',
+        ]);
+      });
+
+      test('is off unless asked for', () async {
+        final provider = await listing(openRouterModels);
+        expect(
+          await provider.listModels(),
+          containsAll(<String>[
+            'anthropic/claude-sonnet-5.5',
+            'openrouter/auto',
+            'openrouter/free',
+            'openrouter/sherlock-alpha',
+            'qwen/qwen3.8-27b:free',
+          ]),
+        );
+      });
+
+      test('a list without free chat models is a bad response', () async {
+        final provider = await listing(<Map<String, Object?>>[
+          priced('anthropic/claude-sonnet-5.5', '0.000003'),
+          priced('openrouter/auto', '-1'),
+        ]);
+        await expectLater(
+          provider.listModels(freeOnly: true),
+          throwsA(isA<BadResponseException>()),
+        );
+      });
     });
 
     test('a public list is read without a key', () async {
@@ -454,6 +570,26 @@ void main() {
         'No.',
         'Why?',
       ]);
+    });
+
+    test('includes usage from the final usage-only event', () async {
+      final provider = await streamingProvider(
+        '${_event(<String, Object?>{'content': 'Hello'})}'
+        'data: ${jsonEncode(<String, Object?>{
+          'choices': <Object?>[],
+          'usage': <String, Object?>{'total_tokens': 42},
+        })}\n\n'
+        '$_done',
+      );
+
+      expect(await ask(provider).toList(), const <AiReply>[
+        AiReply(text: 'Hello'),
+        AiReply(text: 'Hello', totalTokens: 42),
+      ]);
+      expect(
+        (jsonDecode(sentBody) as Map<String, dynamic>)['stream_options'],
+        <String, bool>{'include_usage': true},
+      );
     });
 
     test('streams reasoning from reasoning and reasoning_content', () async {

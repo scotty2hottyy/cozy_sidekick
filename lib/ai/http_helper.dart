@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 
 import 'ai_provider.dart';
 
+/// Posts [body] as JSON and returns the JSON object in the reply.
+/// [onHeaders] gets the headers of a successful reply.
 Future<Map<String, dynamic>> postJson(
   http.Client client,
   Uri url, {
@@ -13,35 +15,33 @@ Future<Map<String, dynamic>> postJson(
   required Map<String, Object?> body,
   Future<void>? abortTrigger,
   Duration timeout = const Duration(seconds: 60),
-}) =>
-    _requestJson(
-      () {
-        if (abortTrigger == null) {
-          return client.post(
-            url,
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              ...headers,
-            },
-            body: jsonEncode(body),
-          );
-        }
+  void Function(Map<String, String> headers)? onHeaders,
+}) => _requestJson(
+  () {
+    if (abortTrigger == null) {
+      return client.post(
+        url,
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: jsonEncode(body),
+      );
+    }
 
-        final request = http.AbortableRequest(
-          'POST',
-          url,
-          abortTrigger: abortTrigger,
-        )
+    final request =
+        http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
           ..headers.addAll(<String, String>{
             'Content-Type': 'application/json',
             ...headers,
           })
           ..body = jsonEncode(body);
 
-        return client.send(request).then(http.Response.fromStream);
-      },
-      timeout,
-    );
+    return client.send(request).then(http.Response.fromStream);
+  },
+  timeout,
+  onHeaders,
+);
 
 /// Gets [url] and returns its JSON object, with the same errors as
 /// [postJson].
@@ -50,13 +50,13 @@ Future<Map<String, dynamic>> getJson(
   Uri url, {
   required Map<String, String> headers,
   Duration timeout = const Duration(seconds: 60),
-}) =>
-    _requestJson(() => client.get(url, headers: headers), timeout);
+}) => _requestJson(() => client.get(url, headers: headers), timeout);
 
 Future<Map<String, dynamic>> _requestJson(
   Future<http.Response> Function() send,
-  Duration timeout,
-) async {
+  Duration timeout, [
+  void Function(Map<String, String> headers)? onHeaders,
+]) async {
   final http.Response response;
   try {
     response = await send().timeout(timeout);
@@ -67,6 +67,7 @@ Future<Map<String, dynamic>> _requestJson(
   }
 
   _checkStatus(response);
+  onHeaders?.call(response.headers);
 
   try {
     final decoded = jsonDecode(response.body);
@@ -85,6 +86,7 @@ Future<Map<String, dynamic>> _requestJson(
 /// `: OPENROUTER PROCESSING` and fields other than `data:` are skipped.
 /// [timeout] is the longest wait for the reply to start and between two
 /// lines, not for the whole reply, since long replies can take minutes.
+/// [onHeaders] gets the headers of a successful reply, before its events.
 Stream<Map<String, dynamic>> postEventStream(
   http.Client client,
   Uri url, {
@@ -92,12 +94,9 @@ Stream<Map<String, dynamic>> postEventStream(
   required Map<String, Object?> body,
   Future<void>? abortTrigger,
   Duration timeout = const Duration(seconds: 60),
+  void Function(Map<String, String> headers)? onHeaders,
 }) async* {
-  final request = http.AbortableRequest(
-    'POST',
-    url,
-    abortTrigger: abortTrigger,
-  )
+  final request = http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
     ..headers.addAll(<String, String>{
       'Content-Type': 'application/json',
       ...headers,
@@ -110,10 +109,10 @@ Stream<Map<String, dynamic>> postEventStream(
 
     if (code < 200 || code >= 300) {
       // Errors arrive before any events, with a normal JSON body.
-      _checkStatus(
-        await http.Response.fromStream(response).timeout(timeout),
-      );
+      _checkStatus(await http.Response.fromStream(response).timeout(timeout));
     }
+
+    onHeaders?.call(response.headers);
 
     // Decoding as a stream puts back together a line or a character that
     // arrives split between two pieces.
@@ -146,9 +145,7 @@ Stream<Map<String, dynamic>> postEventStream(
     // mid-reply as it is.
     throw const NetworkException();
   } on FormatException {
-    throw const BadResponseException(
-      'An event was not JSON or not UTF-8',
-    );
+    throw const BadResponseException('An event was not JSON or not UTF-8');
   }
 }
 
@@ -157,9 +154,7 @@ Map<String, dynamic> _decodeEvent(String data) {
 
   if (decoded is Map<String, dynamic>) return decoded;
 
-  throw const BadResponseException(
-    'An event was not a JSON object',
-  );
+  throw const BadResponseException('An event was not a JSON object');
 }
 
 /// Throws the [AiProviderException] for [response]'s status code, unless
@@ -177,7 +172,7 @@ void _checkStatus(http.Response response) {
   }
 
   if (code == 429) {
-    throw const RateLimitException();
+    throw RateLimitException(retryAt: _retryAt(response));
   }
 
   if (code >= 500) {
@@ -187,6 +182,76 @@ void _checkStatus(http.Response response) {
   if (code < 200 || code >= 300) {
     throw BadResponseException('HTTP $code');
   }
+}
+
+/// When a 429 [response] says to try again, or null when it doesn't say or
+/// the time has passed.
+///
+/// `Retry-After` is seconds or an HTTP date. OpenRouter sends it when the
+/// provider behind a model gives a hint, and for its own limits it sends
+/// `X-RateLimit-Reset`, as a header or in the error's `metadata.headers`.
+DateTime? _retryAt(http.Response response) {
+  final now = DateTime.now().toUtc();
+  final headers = response.headers;
+  DateTime? retryAt;
+
+  final retryAfter = headers['retry-after']?.trim();
+  if (retryAfter != null) {
+    final seconds = double.tryParse(retryAfter);
+    if (seconds != null) {
+      retryAt = now.add(Duration(milliseconds: (seconds * 1000).round()));
+    } else {
+      try {
+        retryAt = HttpDate.parse(retryAfter).toUtc();
+      } on FormatException {
+        // Try the reset time below.
+      }
+    }
+  }
+
+  retryAt ??= _resetTime(
+    headers['x-ratelimit-reset'] ?? _openRouterResetInBody(response.body),
+    now,
+  );
+  return retryAt != null && retryAt.isAfter(now) ? retryAt : null;
+}
+
+/// A rate limit's reset [value]: a time since the epoch in milliseconds or
+/// seconds, or else seconds from [now]. OpenRouter doesn't say which it
+/// sends, and has sent milliseconds.
+DateTime? _resetTime(String? value, DateTime now) {
+  final number = num.tryParse(value?.trim() ?? '');
+  if (number == null || number <= 0) return null;
+  if (number >= 100000000000) {
+    return DateTime.fromMillisecondsSinceEpoch(number.round(), isUtc: true);
+  }
+  if (number >= 1000000000) {
+    return DateTime.fromMillisecondsSinceEpoch(
+      (number * 1000).round(),
+      isUtc: true,
+    );
+  }
+  return now.add(Duration(milliseconds: (number * 1000).round()));
+}
+
+/// The `X-RateLimit-Reset` OpenRouter can put in a 429's
+/// `error.metadata.headers`, or null.
+String? _openRouterResetInBody(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
+    final metadata = error is Map<String, dynamic> ? error['metadata'] : null;
+    final headers = metadata is Map<String, dynamic>
+        ? metadata['headers']
+        : null;
+    if (headers is! Map<String, dynamic>) return null;
+    for (final MapEntry(:key, :value) in headers.entries) {
+      if (key.toLowerCase() == 'x-ratelimit-reset') return '$value';
+    }
+  } on FormatException {
+    // Not JSON, so there's no reset time in it.
+  }
+  return null;
 }
 
 /// The error for a response that says the model can't be used, or null for
@@ -200,15 +265,12 @@ void _checkStatus(http.Response response) {
 ///   valid model ID", and a 404 when the model doesn't exist or has no
 ///   endpoint the account can use, for example because of its privacy
 ///   settings.
-ModelNotAvailableException? _modelNotAvailable(
-  http.Response response,
-) {
+ModelNotAvailableException? _modelNotAvailable(http.Response response) {
   final status = response.statusCode;
 
   try {
     final decoded = jsonDecode(response.body);
-    final error =
-        decoded is Map<String, dynamic> ? decoded['error'] : null;
+    final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
 
     if (error is! Map<String, dynamic>) return null;
 
@@ -217,9 +279,7 @@ ModelNotAvailableException? _modelNotAvailable(
 
     final isModelError = switch (code) {
       'model_not_found' || 'model_decommissioned' => true,
-      400 =>
-        message is String &&
-            message.contains('not a valid model ID'),
+      400 => message is String && message.contains('not a valid model ID'),
       404 => status == 404,
       _ => false,
     };

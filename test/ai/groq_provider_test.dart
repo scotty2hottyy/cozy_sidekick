@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:cozy_sidekick/ai/ai_provider.dart';
 import 'package:cozy_sidekick/ai/groq_provider.dart';
+import 'package:cozy_sidekick/ai/openai_provider.dart';
+import 'package:cozy_sidekick/ai/openrouter_provider.dart';
 import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/models/free_quota.dart';
 import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/provider_connection_service.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
@@ -174,4 +177,119 @@ void main() {
     );
     expect(requests.last.headers['authorization'], 'Bearer test-key');
   });
+
+  group('free quota', () {
+    // What Groq sends with every reply. Its token headers count tokens per
+    // minute, so only the requests ones are its daily quota.
+    const quotaHeaders = <String, String>{
+      'x-ratelimit-limit-requests': '1000',
+      'x-ratelimit-remaining-requests': '998',
+      'x-ratelimit-limit-tokens': '8000',
+      'x-ratelimit-remaining-tokens': '7400',
+    };
+    const quota = FreeQuota(limit: 1000, remaining: 998);
+
+    test('a reply carries the quota from its headers', () async {
+      final provider = await _answering(AiProviderType.groq, quotaHeaders);
+
+      expect(
+        await provider.sendChat(systemPrompt: 'system', messages: _hi),
+        const AiReply(text: 'Hi', freeQuota: quota),
+      );
+      expect(
+        (await provider.streamChat(systemPrompt: 'system', messages: _hi).last),
+        const AiReply(text: 'Hi', freeQuota: quota),
+      );
+    });
+
+    test('a reply without both requests headers has no quota', () async {
+      for (final headers in <Map<String, String>>[
+        <String, String>{},
+        <String, String>{'x-ratelimit-limit-requests': '1000'},
+        <String, String>{'x-ratelimit-remaining-requests': '998'},
+        <String, String>{
+          'x-ratelimit-limit-requests': '1000',
+          'x-ratelimit-remaining-requests': 'soon',
+        },
+        <String, String>{
+          'x-ratelimit-limit-tokens': '8000',
+          'x-ratelimit-remaining-tokens': '7400',
+        },
+      ]) {
+        final provider = await _answering(AiProviderType.groq, headers);
+        expect(
+          (await provider.sendChat(
+            systemPrompt: 'system',
+            messages: _hi,
+          )).freeQuota,
+          isNull,
+          reason: '$headers',
+        );
+        expect(
+          (await provider
+                  .streamChat(systemPrompt: 'system', messages: _hi)
+                  .last)
+              .freeQuota,
+          isNull,
+          reason: '$headers',
+        );
+      }
+    });
+
+    test('only Groq reads its quota from the headers', () async {
+      for (final type in <AiProviderType>[
+        AiProviderType.openRouter,
+        AiProviderType.openAi,
+      ]) {
+        final provider = await _answering(type, quotaHeaders);
+        expect(
+          await provider.sendChat(systemPrompt: 'system', messages: _hi),
+          const AiReply(text: 'Hi'),
+          reason: '$type',
+        );
+        expect(
+          await provider.streamChat(systemPrompt: 'system', messages: _hi).last,
+          const AiReply(text: 'Hi'),
+          reason: '$type',
+        );
+      }
+    });
+  });
+}
+
+final List<ChatMessage> _hi = <ChatMessage>[ChatMessage.user('Hi')];
+
+/// The [type]'s provider, with a saved key, whose API answers "Hi" with
+/// [headers], streamed or not.
+Future<AiProvider> _answering(
+  AiProviderType type,
+  Map<String, String> headers,
+) async {
+  final keys = InMemoryApiKeyStore();
+  await keys.save(type, 'test-key');
+  final client = MockClient.streaming((request, bodyStream) async {
+    final body =
+        jsonDecode(await bodyStream.bytesToString()) as Map<String, dynamic>;
+    return http.StreamedResponse(
+      Stream<List<int>>.value(
+        utf8.encode(
+          body['stream'] == true
+              ? 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+                    'data: [DONE]\n\n'
+              : '{"choices":[{"message":{"content":"Hi"}}]}',
+        ),
+      ),
+      200,
+      headers: headers,
+    );
+  });
+  return switch (type) {
+    AiProviderType.groq => GroqProvider(keyStore: keys, client: client),
+    AiProviderType.openRouter => OpenRouterProvider(
+      keyStore: keys,
+      client: client,
+    ),
+    AiProviderType.openAi => OpenAiProvider(keyStore: keys, client: client),
+    AiProviderType.customServer => throw ArgumentError.value(type),
+  };
 }

@@ -1,4 +1,5 @@
 import '../models/chat_message.dart';
+import '../models/free_quota.dart';
 
 enum AiProviderType {
   openRouter(
@@ -58,7 +59,12 @@ enum AiProviderType {
 
 /// What a provider sends back for one chat request.
 class AiReply {
-  const AiReply({required this.text, this.reasoning});
+  const AiReply({
+    required this.text,
+    this.reasoning,
+    this.totalTokens,
+    this.freeQuota,
+  });
 
   /// The answer to show in the chat.
   final String text;
@@ -67,12 +73,23 @@ class AiReply {
   /// any.
   final String? reasoning;
 
-  @override
-  bool operator ==(Object other) =>
-      other is AiReply && other.text == text && other.reasoning == reasoning;
+  /// The provider's total input and output token usage, when reported.
+  final int? totalTokens;
+
+  /// The free quota left after this request, for providers that report it
+  /// with each reply, like Groq.
+  final FreeQuota? freeQuota;
 
   @override
-  int get hashCode => Object.hash(text, reasoning);
+  bool operator ==(Object other) =>
+      other is AiReply &&
+      other.text == text &&
+      other.reasoning == reasoning &&
+      other.totalTokens == totalTokens &&
+      other.freeQuota == freeQuota;
+
+  @override
+  int get hashCode => Object.hash(text, reasoning, totalTokens, freeQuota);
 
   @override
   String toString() => 'AiReply("$text", reasoning: $reasoning)';
@@ -121,7 +138,16 @@ class ModelNotAvailableException extends AiProviderException {
 }
 
 class RateLimitException extends AiProviderException {
-  const RateLimitException() : super('HTTP 429');
+  const RateLimitException({this.retryAt}) : super('HTTP 429');
+
+  final DateTime? retryAt;
+}
+
+class QuotaExhaustedException extends AiProviderException {
+  const QuotaExhaustedException({this.resetAt})
+    : super('No free AI route is currently available');
+
+  final DateTime? resetAt;
 }
 
 class ProviderUnavailableException extends AiProviderException {
