@@ -43,7 +43,10 @@ class _ApiCredentialsScreenState extends State<ApiCredentialsScreen> {
       return;
     }
     await widget.settingsStore.saveCustomServerBaseUrl(value);
+    // Show what was saved, e.g. without a trailing "/chat" or slash.
+    final saved = await widget.settingsStore.loadCustomServerBaseUrl();
     if (!mounted) return;
+    _urlController.text = saved;
     setState(() => _urlError = null);
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Custom server URL saved')));

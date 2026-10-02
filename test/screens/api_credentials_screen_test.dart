@@ -53,6 +53,34 @@ void main() {
     expect(find.byKey(_keyField), findsNothing);
   });
 
+  testWidgets('saving a custom server URL shows the cleaned-up URL', (
+    tester,
+  ) async {
+    final settings = InMemorySettingsStore();
+    tester.view.physicalSize = const Size(800, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ApiCredentialsScreen(
+          settingsStore: settings,
+          keyStore: InMemoryApiKeyStore(),
+          connectionTester: _NoopConnectionTester(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final urlField = find.widgetWithText(TextField, 'Base URL');
+    await tester.enterText(urlField, 'https://chat.example.com/chat/');
+    await tester.tap(find.text('Save URL'));
+    await tester.pumpAndSettle();
+
+    expect(settings.customServerBaseUrl, 'https://chat.example.com');
+    final field = tester.widget<TextField>(urlField);
+    expect(field.controller!.text, 'https://chat.example.com');
+  });
+
   testWidgets('a failed save shows a message and keeps the key field', (
     tester,
   ) async {
