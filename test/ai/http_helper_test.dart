@@ -333,6 +333,14 @@ void main() {
       '{"error":{"message":"Invalid messages","code":400}}',
       '{"error":{"message":"Not found","code":404}}',
       '{"error":{"message":"Bad","type":"invalid_request_error","code":null}}',
+      '{"error":{"code":400,"message":5,"metadata":"context_length_exceeded"}}',
+      '{"error":{"code":400,"message":"Bad","metadata":{"error_type":5}}}',
+      '{"error":"maximum context length"}',
+      // A code or error type wins over the message.
+      '{"error":{"code":"invalid_value","message":"Over the maximum context '
+          'length"}}',
+      '{"error":{"code":400,"message":"Over the maximum context length",'
+          '"metadata":{"error_type":"invalid_prompt"}}}',
     ]) {
       await expectLater(
         _post(400, body),
@@ -628,6 +636,222 @@ void main() {
         _events(Stream<List<int>>.value(<int>[...utf8.encode('data:'), 0xff])),
         emitsError(isA<BadResponseException>()),
       );
+    });
+  });
+
+  group('a header value HTTP cannot hold', () {
+    // A key pasted with a zero-width space after "FAKE".
+    const pasted = 'FAKE\u200b-test-key';
+
+    test('is a key problem, and nothing is sent', () async {
+      var sent = 0;
+      final client = MockClient((_) async {
+        sent++;
+        return http.Response('{}', 200);
+      });
+      final streamingClient = MockClient.streaming((_, _) async {
+        sent++;
+        return http.StreamedResponse(_bytes('data: [DONE]\n\n'), 200);
+      });
+      final url = Uri.parse('https://example.com');
+      const headers = <String, String>{'Authorization': 'Bearer $pasted'};
+      final noKey = isA<InvalidApiKeyException>().having(
+        (e) => '$e',
+        'toString',
+        isNot(contains('FAKE')),
+      );
+
+      await expectLater(
+        postJson(client, url, headers: headers, body: <String, Object?>{}),
+        throwsA(noKey),
+      );
+      await expectLater(
+        postJson(
+          client,
+          url,
+          headers: headers,
+          body: <String, Object?>{},
+          abortTrigger: Completer<void>().future,
+        ),
+        throwsA(noKey),
+      );
+      await expectLater(getJson(client, url, headers: headers), throwsA(noKey));
+      await expectLater(
+        postEventStream(
+          streamingClient,
+          url,
+          headers: headers,
+          body: <String, Object?>{},
+        ),
+        emitsError(noKey),
+      );
+      expect(sent, 0);
+    });
+
+    test('includes control characters and non-ASCII letters', () async {
+      for (final token in <String>['line\nbreak', 'caf\u00e9', 'del\u007f']) {
+        await expectLater(
+          getJson(
+            MockClient((_) async => http.Response('{}', 200)),
+            Uri.parse('https://example.com'),
+            headers: <String, String>{'Authorization': 'Bearer $token'},
+          ),
+          throwsA(isA<InvalidApiKeyException>()),
+          reason: token,
+        );
+      }
+    });
+
+    test('does not include a tab or printable ASCII', () async {
+      final json = await getJson(
+        MockClient((_) async => http.Response('{}', 200)),
+        Uri.parse('https://example.com'),
+        headers: <String, String>{'Authorization': 'Bearer a\tb ~!'},
+      );
+      expect(json, isEmpty);
+    });
+  });
+
+  test('TLS and dropped-connection errors are network errors', () async {
+    final url = Uri.parse('https://example.com');
+    // A captive portal or a self-signed certificate.
+    await expectLater(
+      getJson(
+        MockClient((_) async => throw const HandshakeException('bad cert')),
+        url,
+        headers: <String, String>{},
+      ),
+      throwsA(isA<NetworkException>()),
+    );
+    await expectLater(
+      postJson(
+        MockClient((_) async => throw const HandshakeException('bad cert')),
+        url,
+        headers: <String, String>{},
+        body: <String, Object?>{},
+      ),
+      throwsA(isA<NetworkException>()),
+    );
+    // http passes on a SocketException from a reply that stops halfway.
+    Stream<List<int>> dropped() async* {
+      yield utf8.encode('{"ok":');
+      throw const SocketException('Connection reset by peer');
+    }
+
+    for (final abortTrigger in <Future<void>?>[
+      null,
+      Completer<void>().future,
+    ]) {
+      await expectLater(
+        postJson(
+          MockClient.streaming(
+            (_, _) async => http.StreamedResponse(dropped(), 200),
+          ),
+          url,
+          headers: <String, String>{},
+          body: <String, Object?>{},
+          abortTrigger: abortTrigger,
+        ),
+        throwsA(isA<NetworkException>()),
+        reason: 'abortTrigger: $abortTrigger',
+      );
+    }
+  });
+
+  group('errors that trying again cannot fix', () {
+    // What OpenAI sends when the account has no credit left.
+    const insufficientQuota =
+        '{"error":{"message":"You exceeded your current quota, please check '
+        'your plan and billing details.","type":"insufficient_quota",'
+        '"param":null,"code":"insufficient_quota"}}';
+    const creditBalanceExhausted =
+        '{"error":{"message":"Your credit balance is exhausted.",'
+        '"type":"requests","code":"credit_balance_exhausted"}}';
+    // OpenRouter, for a paid model on an account without credit.
+    const insufficientCredits =
+        '{"error":{"message":"Insufficient credits. Add more using '
+        'https://openrouter.ai/settings/credits","code":402}}';
+    const contextLengthExceeded =
+        '{"error":{"message":"This model\'s maximum context length is 8192 '
+        'tokens.","type":"invalid_request_error","param":"messages",'
+        '"code":"context_length_exceeded"}}';
+    // OpenRouter's codes are numbers, so it names the error in metadata, or
+    // only in the message.
+    const openRouterContextLength =
+        '{"error":{"code":400,"message":"This endpoint\'s maximum context '
+        'length is 32768 tokens. However, you requested about 40000 tokens.",'
+        '"metadata":{"error_type":"context_length_exceeded"}}}';
+    const openRouterContextLengthNoMetadata =
+        '{"error":{"code":400,"message":"This endpoint\'s maximum context '
+        'length is 32768 tokens. However, you requested about 40000 '
+        'tokens."}}';
+    // Groq, for a request over the free tokens-per-minute limit.
+    const requestTooLarge =
+        '{"error":{"message":"Request too large for model `openai/gpt-oss-20b` '
+        'on tokens per minute (TPM): Limit 8000, Requested 9120",'
+        '"type":"tokens","code":"rate_limit_exceeded"}}';
+
+    final cases = <(int, String, Type)>[
+      (402, insufficientCredits, OutOfCreditException),
+      (402, '', OutOfCreditException),
+      (429, insufficientQuota, OutOfCreditException),
+      (429, creditBalanceExhausted, OutOfCreditException),
+      (
+        429,
+        '{"error":{"message":"No credit","type":"insufficient_quota",'
+            '"code":null}}',
+        OutOfCreditException,
+      ),
+      (413, requestTooLarge, RequestTooLargeException),
+      (413, '<html>Too large</html>', RequestTooLargeException),
+      (400, contextLengthExceeded, RequestTooLargeException),
+      (400, openRouterContextLength, RequestTooLargeException),
+      (400, openRouterContextLengthNoMetadata, RequestTooLargeException),
+      (
+        400,
+        '{"error":{"code":400,"message":"Bad request",'
+            '"metadata":{"error_type":"context_length_exceeded"}}}',
+        RequestTooLargeException,
+      ),
+      // A plain rate limit still asks the user to wait.
+      (
+        429,
+        '{"error":{"message":"Rate limit reached","type":"requests",'
+            '"code":"rate_limit_exceeded"}}',
+        RateLimitException,
+      ),
+    ];
+
+    test('map from a JSON reply', () async {
+      for (final (code, body, type) in cases) {
+        await expectLater(
+          _post(code, body),
+          throwsA(
+            isA<AiProviderException>().having(
+              (e) => e.runtimeType,
+              'type',
+              type,
+            ),
+          ),
+          reason: '$code $body',
+        );
+      }
+    });
+
+    test('map the same before a stream starts', () async {
+      for (final (code, body, type) in cases) {
+        await expectLater(
+          _events(_bytes(body), statusCode: code),
+          emitsError(
+            isA<AiProviderException>().having(
+              (e) => e.runtimeType,
+              'type',
+              type,
+            ),
+          ),
+          reason: '$code $body',
+        );
+      }
     });
   });
 }

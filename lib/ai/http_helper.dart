@@ -17,6 +17,7 @@ Future<Map<String, dynamic>> postJson(
   Duration timeout = const Duration(seconds: 60),
   void Function(Map<String, String> headers)? onHeaders,
 }) => _requestJson(
+  headers,
   () {
     if (abortTrigger == null) {
       return client.post(
@@ -50,19 +51,27 @@ Future<Map<String, dynamic>> getJson(
   Uri url, {
   required Map<String, String> headers,
   Duration timeout = const Duration(seconds: 60),
-}) => _requestJson(() => client.get(url, headers: headers), timeout);
+}) => _requestJson(headers, () => client.get(url, headers: headers), timeout);
 
+/// Checks [headers], then sends the request that [send] builds with them.
 Future<Map<String, dynamic>> _requestJson(
+  Map<String, String> headers,
   Future<http.Response> Function() send,
   Duration timeout, [
   void Function(Map<String, String> headers)? onHeaders,
 ]) async {
+  _checkHeaderValues(headers);
+
   final http.Response response;
   try {
     response = await send().timeout(timeout);
   } on TimeoutException {
     throw const ProviderTimeoutException();
   } on http.ClientException {
+    throw const NetworkException();
+  } on IOException {
+    // http passes on a HandshakeException, or a SocketException from a
+    // connection that drops mid-reply, as it is.
     throw const NetworkException();
   }
 
@@ -96,6 +105,8 @@ Stream<Map<String, dynamic>> postEventStream(
   Duration timeout = const Duration(seconds: 60),
   void Function(Map<String, String> headers)? onHeaders,
 }) async* {
+  _checkHeaderValues(headers);
+
   final request = http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
     ..headers.addAll(<String, String>{
       'Content-Type': 'application/json',
@@ -149,6 +160,23 @@ Stream<Map<String, dynamic>> postEventStream(
   }
 }
 
+/// Throws [InvalidApiKeyException] when a value in [headers] has a
+/// character that an HTTP header can't hold.
+///
+/// dart:io would throw a FormatException that holds the whole value, key
+/// and all. The app's own headers are plain ASCII, so only a key or token
+/// pasted with something like a zero-width space fails here.
+void _checkHeaderValues(Map<String, String> headers) {
+  for (final value in headers.values) {
+    for (final unit in value.codeUnits) {
+      // Printable ASCII, or a tab.
+      if ((unit < 0x20 || unit > 0x7e) && unit != 0x09) {
+        throw const InvalidApiKeyException();
+      }
+    }
+  }
+}
+
 Map<String, dynamic> _decodeEvent(String data) {
   final decoded = jsonDecode(data);
 
@@ -167,11 +195,26 @@ void _checkStatus(http.Response response) {
     if (modelError != null) throw modelError;
   }
 
+  if (code == 400 && _isContextTooLong(_errorObject(response))) {
+    throw const RequestTooLargeException('HTTP 400 context_length_exceeded');
+  }
+
   if (code == 401 || code == 403) {
     throw const InvalidApiKeyException();
   }
 
+  // OpenRouter, when the account has no credit for a paid model.
+  if (code == 402) {
+    throw const OutOfCreditException();
+  }
+
+  if (code == 413) {
+    throw const RequestTooLargeException();
+  }
+
   if (code == 429) {
+    final outOfCredit = _outOfCredit(response);
+    if (outOfCredit != null) throw outOfCredit;
     throw RateLimitException(retryAt: _retryAt(response));
   }
 
@@ -267,34 +310,86 @@ String? _openRouterResetInBody(String body) {
 ///   settings.
 ModelNotAvailableException? _modelNotAvailable(http.Response response) {
   final status = response.statusCode;
+  final error = _errorObject(response);
 
+  if (error == null) return null;
+
+  final code = error['code'];
+  final message = error['message'];
+
+  final isModelError = switch (code) {
+    'model_not_found' || 'model_decommissioned' => true,
+    400 => message is String && message.contains('not a valid model ID'),
+    404 => status == 404,
+    _ => false,
+  };
+
+  if (isModelError) {
+    // The message names the model (and OpenAI's the project), which helps
+    // in logs.
+    return ModelNotAvailableException(
+      'HTTP $status${code is String ? ' $code' : ''}'
+      '${message is String ? ': $message' : ''}',
+    );
+  }
+
+  return null;
+}
+
+/// The error for a 429 [response] that says the account is out of credit,
+/// or null for one that only asks to slow down.
+///
+/// OpenAI sends `"code": "insufficient_quota"` or `credit_balance_exhausted`
+/// when the account has no prepaid credit or has reached its spend limit,
+/// and its `type` can be `insufficient_quota` too. Trying again won't help.
+OutOfCreditException? _outOfCredit(http.Response response) {
+  final error = _errorObject(response);
+  final code = error?['code'];
+
+  if (code == 'insufficient_quota' ||
+      code == 'credit_balance_exhausted' ||
+      error?['type'] == 'insufficient_quota') {
+    return OutOfCreditException(
+      'HTTP 429 ${code is String ? code : 'insufficient_quota'}',
+    );
+  }
+
+  return null;
+}
+
+/// Whether a 400's [error] says the chat is longer than the model can read.
+///
+/// OpenAI and Groq send `"code": "context_length_exceeded"`. OpenRouter's
+/// codes are numbers, so it puts that in `metadata.error_type`, or says
+/// "maximum context length" in the message, like OpenAI's.
+bool _isContextTooLong(Map<String, dynamic>? error) {
+  if (error == null) return false;
+
+  final code = error['code'];
+  final metadata = error['metadata'];
+  final errorType = metadata is Map<String, dynamic>
+      ? metadata['error_type']
+      : null;
+
+  if (code is String || errorType is String) {
+    return code == 'context_length_exceeded' ||
+        errorType == 'context_length_exceeded';
+  }
+
+  // Without either, only the message says what went wrong.
+  final message = error['message'];
+  return message is String && message.contains('maximum context length');
+}
+
+/// The `error` object in [response]'s JSON body, or null when it has none.
+Map<String, dynamic>? _errorObject(http.Response response) {
   try {
     final decoded = jsonDecode(response.body);
     final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
 
-    if (error is! Map<String, dynamic>) return null;
-
-    final code = error['code'];
-    final message = error['message'];
-
-    final isModelError = switch (code) {
-      'model_not_found' || 'model_decommissioned' => true,
-      400 => message is String && message.contains('not a valid model ID'),
-      404 => status == 404,
-      _ => false,
-    };
-
-    if (isModelError) {
-      // The message names the model (and OpenAI's the project), which helps
-      // in logs.
-      return ModelNotAvailableException(
-        'HTTP $status${code is String ? ' $code' : ''}'
-        '${message is String ? ': $message' : ''}',
-      );
-    }
+    return error is Map<String, dynamic> ? error : null;
   } on FormatException {
-    // Not JSON, so it isn't a model error.
+    // Not JSON, so it has no error object.
+    return null;
   }
-
-  return null;
 }

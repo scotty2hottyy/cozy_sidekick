@@ -43,7 +43,10 @@ class _ApiCredentialsScreenState extends State<ApiCredentialsScreen> {
       return;
     }
     await widget.settingsStore.saveCustomServerBaseUrl(value);
+    // Show what was saved, e.g. without a trailing "/chat" or slash.
+    final saved = await widget.settingsStore.loadCustomServerBaseUrl();
     if (!mounted) return;
+    _urlController.text = saved;
     setState(() => _urlError = null);
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Custom server URL saved')));
@@ -126,6 +129,7 @@ class _CredentialCardState extends State<_CredentialCard> {
   bool _hasSecret = false;
   bool _replacing = false;
   bool _testing = false;
+  String? _secretError;
   ConnectionTestResult? _result;
 
   @override
@@ -135,28 +139,82 @@ class _CredentialCardState extends State<_CredentialCard> {
   }
 
   Future<void> _loadStatus() async {
-    final value = await widget.keyStore.has(widget.provider);
+    bool value;
+    try {
+      value = await widget.keyStore.has(widget.provider);
+    } on Object catch (error) {
+      // Show the empty field so saving a key again can fix it.
+      debugPrint('Key status check failed: ${error.runtimeType}');
+      value = false;
+    }
     if (mounted) setState(() => _hasSecret = value);
   }
 
+  /// Invisible characters that copy and paste can add, such as a zero-width
+  /// space. No key or token contains them, so they are removed before saving.
+  static final RegExp _invisibleCharacters = RegExp(
+    r'[\u00AD\u200B-\u200D\u2060\uFEFF]',
+  );
+
+  /// Keys and tokens only use visible ASCII. Anything else, such as a space
+  /// or an accented letter, would break requests.
+  static bool _isAllowedSecret(String value) =>
+      value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
+
+  String get _enteredSecret =>
+      _controller.text.replaceAll(_invisibleCharacters, '').trim();
+
+  /// The field's label as it reads mid-sentence: "API key" keeps its
+  /// capitals and "Access token" becomes "access token".
+  String get _secretName {
+    final label = widget.provider.secretLabel;
+    final firstWord = label.split(' ').first;
+    return firstWord == firstWord.toUpperCase() ? label : label.toLowerCase();
+  }
+
+  void _showMessage(String message) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+
   Future<void> _save() async {
-    final value = _controller.text.trim();
+    final value = _enteredSecret;
     if (value.isEmpty) return;
-    await widget.keyStore.save(widget.provider, value);
+    if (!_isAllowedSecret(value)) {
+      // Clear it so pasting again replaces the bad key instead of adding to it.
+      _controller.clear();
+      setState(
+        () => _secretError =
+            'This $_secretName has a hidden or unsupported character. '
+            'Copy it again from where you got it.',
+      );
+      return;
+    }
+    try {
+      await widget.keyStore.save(widget.provider, value);
+    } on Object catch (error) {
+      debugPrint('Key save failed: ${error.runtimeType}');
+      if (mounted) _showMessage("Couldn't save the key. Please try again.");
+      return;
+    }
     _controller.clear();
     if (!mounted) return;
     setState(() {
       _hasSecret = true;
       _replacing = false;
+      _secretError = null;
       _result = null;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Credential saved securely')));
+    _showMessage('Credential saved securely');
   }
 
   Future<void> _delete() async {
-    await widget.keyStore.delete(widget.provider);
+    try {
+      await widget.keyStore.delete(widget.provider);
+    } on Object catch (error) {
+      debugPrint('Key delete failed: ${error.runtimeType}');
+      if (mounted) _showMessage("Couldn't delete the key. Please try again.");
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _hasSecret = false;
@@ -214,9 +272,11 @@ class _CredentialCardState extends State<_CredentialCard> {
               obscureText: true,
               autocorrect: false,
               enableSuggestions: false,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() => _secretError = null),
               decoration: InputDecoration(
                 labelText: widget.provider.secretLabel,
+                errorText: _secretError,
+                errorMaxLines: 3,
                 border: const OutlineInputBorder(),
               ),
             ),
@@ -235,7 +295,7 @@ class _CredentialCardState extends State<_CredentialCard> {
               ] else
                 FilledButton(
                   key: ValueKey<String>('save-${widget.provider.name}'),
-                  onPressed: _controller.text.trim().isEmpty ? null : _save,
+                  onPressed: _enteredSecret.isEmpty ? null : _save,
                   child: const Text('Save'),
                 ),
               OutlinedButton(

@@ -57,12 +57,12 @@ The personality/system instructions live in the app rather than on the server.
 - `OpenAiProvider` (registered in `main.dart` since #30) now defaults to `gpt-6-luna`, OpenAI's most efficient current model ($0.10 input / $0.50 output per 1M tokens). Since #27 the default lives in `AiProviderType.openAi.defaultModel`, and AI Settings can pick another model.
 - It uses Chat Completions (`https://api.openai.com/v1/chat/completions`) through the shared `OpenAiCompatibleProvider`, like OpenRouter and Groq.
 - Added `test/ai/openai_provider_test.dart` for the URL, Bearer header, model, ordered messages, reply parsing, the OpenAI-only key slot, malformed replies, and 401s.
-- OpenAI has no free tier, so the account needs credit. If Test Connection says "Authentication failed" but the key is right, the OpenAI project may not allow the model (HTTP 403 `model_not_found`). Allow `gpt-6-luna` under Settings → Project → Limits.
+- OpenAI has no free tier, so the account needs credit. If Test Connection says "Authentication failed" but the key is right, the OpenAI project may not allow the model (HTTP 403 `model_not_found`). Allow `gpt-6-luna` under Settings → Project → Limits. (Superseded by #40: Test Connection now says the model isn't available instead.)
 - Validation: `flutter analyze` passes; `flutter test` passes (78 tests). Test Connection and a real chat reply worked in the iOS Simulator with a real key.
 
 ### Issue #16 - Single local chat history
 
-- Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization.
+- Added an injectable `ChatHistoryStore` and `FileChatHistoryStore`, using the application documents directory and `chat_history.json` with existing `ChatMessage` JSON serialization. (Superseded: since multi-conversation chat, history lives in `conversations.json` through `FileConversationStore`, which migrates `chat_history.json`. The unused `ChatHistoryStore` was removed in #22.)
 - Stores the newest 500 messages; missing or invalid history loads as empty.
 - `ChatService` saves before provider requests and after successful replies. Only the newest 20 conversation messages are sent to providers; the system prompt is unchanged.
 - `ChatScreen` restores history with an initial spinner and offers a confirmed Clear chat action under Settings → Chat History. Sending/clearing is disabled while loading or busy to avoid conflicting updates.
@@ -97,7 +97,7 @@ Validation:
 Remaining manual testing:
 - Save settings, fully restart the app, and confirm provider, URL, and credentials persist.
 - Test OpenRouter with a real user-entered key.
-- Configure `https://chatserver.sonniersolution.com` with a privately supplied token; test connection and a real chat round trip.
+- Configure `https://chatserver.sonniersolution.com` with a privately supplied token; test connection and a real chat round trip. (Replaced by testing any custom server that follows the README contract.)
 - Confirm bad-token behavior on the live custom server.
 - Validate the complete flow on physical iPhone and Android devices.
 
@@ -123,7 +123,7 @@ Files: `lib/models/personality.dart`, `lib/screens/personality_screen.dart`, `li
 Implemented:
 - `Personality` model with an ID, name, system prompt, and default flag.
 - Personality screen reachable from Settings, with controls to add, edit, choose a default, and remove non-default personalities.
-- `PersonalityService` stores the serialized personality list and active personality ID in `shared_preferences`, loads saved state at app startup, and seeds the built-in personalities on a fresh install.
+- `PersonalityService` stores the serialized personality list and active personality ID in `shared_preferences`, loads saved state at app startup, and seeds the built-in personalities on a fresh install. (Superseded: the active personality is now session-only, and the saved `isDefault` flag picks the startup personality. See "Active personality versus startup default".)
 - `ChatService` loads the active personality for each reply and passes its system prompt to the selected provider.
 - Unit and widget coverage checks personality persistence, active-personality chat prompts, and personality editing from Settings.
 
@@ -154,14 +154,8 @@ Validation:
 - Moved Clear chat from the chat header menu to Settings → Chat History, retaining the delete confirmation and persistence behavior.
 - Settings is disabled during history loading, sending, or clearing to preserve the existing operation guard. Updated the widget test to cover the settings path, cancel, deletion, and returning to chat.
 
-## Next
-1. Complete the provider/settings manual test checklist above.
-2. Manually validate personality persistence across a full app restart and confirm chat requests use the selected prompt.
-3. Manually verify chat history survives a physical-device close/reopen cycle and clear-chat persists.
-4. Manually validate issue #2 on physical iPhone and Android devices.
-
 ### Five personality presets
-- Added Cozy, Curious, Adventure, Planner, and Captain Quip as constant `Personality.presets`.
+- Added Cozy, Curious, Adventure, Planner, and Captain Quip as constant `Personality.presets`. (Superseded by "Preset layout cleanup": four preset chips, plus the seeded Cozy Sidekick card.)
 - The horizontal Start from a preset chips open the existing editable name/system-instructions dialog. Only Save creates a personality; Cancel leaves stored personalities and the active selection untouched.
 - Adapted the proposed trait/description design to the existing name/systemPrompt model; no storage migration or changes to existing user personalities/defaults.
 - Added model validation and widget coverage for all five chips, editing, cancel, and explicit save.
@@ -199,7 +193,7 @@ Validation:
 ### Issue #34 - Show model reasoning
 - Providers return an `AiReply` (`text` plus an optional `reasoning`) instead of a `String`. New providers and test fakes must return one too.
 - `OpenAiCompatibleProvider.parseReply` takes reasoning from the first of these that isn't blank: `message.reasoning` (OpenRouter, Ollama, vLLM), `message.reasoning_content` (llama.cpp, DeepSeek-style), or the content before its last `</think>`, which is then removed from the answer. A reply that's only reasoning is still a `BadResponseException`. `CustomServerProvider` reads an optional `reasoning` string next to `message`. OpenAI's Chat Completions never returns reasoning.
-- `ChatMessage.reasoning` is saved in `chat_history.json` only when there is some, so older history still loads. It's saved even while Show reasoning is off. Requests never include it, because both providers send only `message.text`.
+- `ChatMessage.reasoning` is saved in `chat_history.json` (now `conversations.json`) only when there is some, so older history still loads. It's saved even while Show reasoning is off. Requests never include it, because both providers send only `message.text`.
 - Settings → AI Settings has Show reasoning (`chat.show_reasoning`, off by default). `ChatScreen._loadChatSettings()` loads it with the formatting switches, so it applies when the user comes back from Settings.
 - `MessageBubble` shows a collapsed Reasoning row (`Key('reasoningToggle')`) above replies that have reasoning. `ChatScreen` remembers which replies are open, so they stay open while new messages arrive. The chat list is reversed, so opening long reasoning scrolls just enough to keep its row on screen, and closing puts the row back where it was.
 - Validation: `flutter analyze` passes; `flutter test` passes (135 tests). Checked in the iOS Simulator (iPhone 17 Pro) with sample replies loaded into the chat history. Not checked yet: a real OpenRouter reply with reasoning.
@@ -258,3 +252,31 @@ Validation:
 - `ModelLister.listFreeModels`: OpenRouter's `:free` models priced 0 plus `openrouter/free` (first), leaving out routers priced -1, music and stealth models, and safety classifiers. Groq returns all its chat models (default first, key needed). OpenAI returns the article's models without a request.
 - AI Settings reads quotas only while auto-routing is on, and a newer refresh wins over a slower older one. Row text comes from `routeStatus()`, and amounts from `formatAmount()` ("1,000 requests", "2.25M tokens"). The route editor has a `DropdownButtonFormField` of free models (no typing; OpenAI items show their tokens a day under the ID) and a `Slider` from 0 to the quota, with one step per value up to 100 and 100 steps above that. All the way right reads "Use the whole free quota" and saves no limit. Switching OpenAI groups or the tier switch resets the limit to 90%, and switching Groq models clears it, since each has its own quota. Save stays off while the saved model isn't one of the free models.
 - Validation: `flutter analyze` passes; `flutter test` passes (373 tests). Two review passes checked the change against the card, and the fixes each have a test that fails without them. Checked in the iOS Simulator (iPhone 17 Pro, a preview build without keys): the route rows, the OpenAI editor (both models with their tokens a day, the group switch to 225K, and the tier switch to 1M and 900K), the Groq and OpenRouter editors without a key, and OpenRouter's live free-model list. Not checked yet: the card's Confirmation steps with real OpenRouter and Groq keys.
+
+### Issue #22 - Release v1.0.0 (final testing and cleanup)
+
+A release audit on 2026-10-02 checked eight areas (platform config, CI, code hygiene, errors and secrets, persistence, providers, layout and docs), and a second reviewer confirmed each finding. Android release config went to #17 (PR #63). The rest:
+- **Errors** (`lib/ai/http_helper.dart`, `error_messages.dart`):
+  - A key or token with a character outside printable ASCII is rejected before any request is built, as `InvalidApiKeyException`. dart:io's own error quotes the whole `Authorization` header, so it used to reach the log.
+  - `_requestJson` maps any `IOException` (a TLS handshake, a connection dropped mid-body) to `NetworkException`.
+  - New `OutOfCreditException` (402, or a 429 with `insufficient_quota` or `credit_balance_exhausted`) and `RequestTooLargeException` (413, or a 400 with `context_length_exceeded`). Both offer **Settings**, which opens AI Settings, and the auto-router moves on to the next route for them.
+  - A rate limit whose retry time is over a minute away says "Try again after <time> UTC", using the same formatter and threshold as the AI Settings route status.
+  - Every `debugPrint` of an error logs only its `runtimeType`.
+- **Custom server URL:** a port outside 1–65535 is rejected, and a trailing `/chat` or slash is dropped when saving and when sending. `testConnection` catches everything, so the button can't stay on "Testing…".
+- **Keys:** `clearKeysLeftFromPreviousInstall` (`lib/services/first_launch_cleanup.dart`) deletes saved keys on a true first launch, which it detects by the `personality.items` preference being absent. iOS keeps Keychain items after the app is deleted. `SecureApiKeyStore.read` returns null on a `PlatformException`, so a key that can't be decrypted acts like a missing key. API Credentials catches storage errors and rejects keys with invisible characters.
+- **Layout:** when the chat body is shorter than 320 px, the "Chat:" line hides and the composer grows to only 2 lines (`MessageComposer.maxLines`). The header (with the Conversations and Settings buttons) also hides, but only while the keyboard is up, so a short window such as split-screen keeps its buttons. The chat body respects side safe areas. The Rename and personality dialogs scroll. `ChatHeader` is a Row, so a long title can't cover its buttons. The Voice & Speech dropdowns shorten long names.
+- **Cleanup:** removed the About placeholder row, the unused `ChatHistoryStore`, the template text in `pubspec.yaml` and the unused `cupertino_icons`.
+- **CI:** a `release` job runs only on `vX.Y.Z` tags (the workflow triggers on `v*.*.*`). It downloads the APK that `build_apk` uploaded and publishes it as a GitHub Release with `softprops/action-gh-release@v3`. It's the only job with `contents: write`.
+- **README:** screenshots (from a preview build with demo chats, no keys), the CI badge, the team, the Flutter version, where to get keys, the Save step, the custom server's reply rules, and release download and uninstall notes.
+- Found but left for later as cards: unreadable saved chats lock the app, a reply cut off by force-closing can't be retried, two auto-routing miscounts, a size budget for long Groq chats, OpenRouter's moderation 403, and one release signing key.
+
+## Next
+Release checklist for #22, on the release APK from CI, on a real Android phone (and an iPhone if possible):
+1. Fresh install: the chat opens with the default sidekick, and sending asks for a key.
+2. Add a key and chat with each service: OpenRouter, OpenAI, Groq and the custom server.
+3. Switch personalities, and the replies change tone.
+4. Force-close and reopen: personalities, the selected service, keys and chats are all still there.
+5. Airplane mode, a wrong key and no key each show a friendly message with the right button.
+6. Long messages, rotating the phone and opening the keyboard all behave.
+7. Merge PR #63 (#17, the Android release config) and the v1.0.0 PR, wait for a green `main` run that contains both, then push an annotated `v1.0.0` tag on that commit, so CI publishes the GitHub Release. Tagging before #63 is merged would publish an APK that can't reach the network.
+8. At least two teammates install the release APK and go through this list.

@@ -110,7 +110,6 @@ class SettingsScreen extends StatelessWidget {
                 onDeleteAllChats: onDeleteAllChats,
               ),
             ),
-            _row(context, Icons.info_outline_rounded, 'About', 'Cozy Sidekick'),
           ],
         ),
       ),
@@ -127,48 +126,15 @@ class SettingsScreen extends StatelessWidget {
     IconData icon,
     String title,
     String subtitle, {
-    Widget? destination,
+    required Widget destination,
   }) => ListTile(
     contentPadding: EdgeInsets.zero,
     leading: Icon(icon),
     title: Text(title),
     subtitle: Text(subtitle),
     trailing: const Icon(Icons.chevron_right_rounded),
-    onTap: () => Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => destination ?? _SettingsPlaceholderScreen(title: title),
-      ),
-    ),
-  );
-}
-
-class _SettingsPlaceholderScreen extends StatelessWidget {
-  const _SettingsPlaceholderScreen({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
-    body: Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(
-              Icons.construction_rounded,
-              size: 48,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$title will be available in a future update.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-      ),
-    ),
+    onTap: () =>
+        Navigator.of(context)
+            .push(MaterialPageRoute<void>(builder: (_) => destination)),
   );
 }

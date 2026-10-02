@@ -102,8 +102,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
           }
         }
       } on AiProviderException catch (e) {
-        // The row says the quota is unknown instead.
-        debugPrint('Free quota check failed: $e'); // never includes keys
+        // The row says the quota is unknown instead. Only the type is
+        // logged, so no key or provider text reaches the log.
+        debugPrint('Free quota check failed: ${e.runtimeType}');
       }
     }
     final statuses = <String, String>{};
@@ -454,7 +455,7 @@ String routeStatus(QuotaRoute route, RouteUsage usage, DateTime now) {
       return 'Used up · resets ${formatUtcTime(reset)}';
     }
     // A 429 without a time from the provider waits only a second.
-    return reset.difference(nowUtc) < const Duration(minutes: 1)
+    return isShortWait(reset, nowUtc)
         ? 'Busy · try again in a moment'
         : 'Busy · try again after ${formatUtcTime(reset)}';
   }
@@ -486,14 +487,6 @@ String formatAmount(
     QuotaUnit.tokens => amount == 1 ? 'token' : 'tokens',
   };
   return free ? '$number free $name' : '$number $name';
-}
-
-/// [dateTime] in UTC, like "12:00 AM UTC".
-String formatUtcTime(DateTime dateTime) {
-  final time = dateTime.toUtc();
-  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
-  final minute = time.minute.toString().padLeft(2, '0');
-  return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'} UTC';
 }
 
 /// 1234567 as "1,234,567".
@@ -593,15 +586,21 @@ class _QuotaRouteEditDialogState extends State<_QuotaRouteEditDialog> {
     try {
       models = await widget.modelLister.listFreeModels(_route.provider);
       if (models.contains(_route.model)) model = _route.model;
-    } on AiProviderException catch (e) {
-      debugPrint('Free model list failed: $e'); // never includes keys
-      // The route keeps its model until the list loads.
+    } on Object catch (e) {
+      // Only the type is logged, so no key or provider text reaches the log.
+      debugPrint('Free model list failed: ${e.runtimeType}');
+      // The route keeps its model until the list loads. Any error ends the
+      // spinner, so Save can't stay off.
       models = <String>[_route.model];
       model = _route.model;
-      error = e is MissingApiKeyException
-          ? 'Add your ${_route.provider.displayName} key in API Credentials '
-                'to see its free models.'
-          : "Couldn't load the free models. ${friendlyMessage(e)}";
+      error = switch (e) {
+        MissingApiKeyException() =>
+          'Add your ${_route.provider.displayName} key in API Credentials '
+              'to see its free models.',
+        AiProviderException() =>
+          "Couldn't load the free models. ${friendlyMessage(e)}",
+        _ => "Couldn't load the free models.",
+      };
     }
     if (!mounted) return;
     setState(() {

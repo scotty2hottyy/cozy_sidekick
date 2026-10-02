@@ -7,6 +7,8 @@ enum ConnectionTestStatus {
   noCredential,
   invalidCredential,
   modelNotAvailable,
+  outOfCredit,
+  requestTooLarge,
   rateLimit,
   networkUnavailable,
   providerUnavailable,
@@ -28,6 +30,10 @@ class ConnectionTestResult {
     ConnectionTestStatus.modelNotAvailable =>
       "The credential was accepted, but the model isn't available for this "
           'account.',
+    ConnectionTestStatus.outOfCredit =>
+      'The credential was accepted, but the account is out of credit.',
+    ConnectionTestStatus.requestTooLarge =>
+      'The request was too large for this model.',
     ConnectionTestStatus.rateLimit => 'Rate limit reached. Try again later.',
     ConnectionTestStatus.networkUnavailable =>
       'Network unavailable or the request timed out.',
@@ -76,6 +82,10 @@ class ProviderConnectionService implements ConnectionTester {
       return const ConnectionTestResult(ConnectionTestStatus.invalidCredential);
     } on ModelNotAvailableException {
       return const ConnectionTestResult(ConnectionTestStatus.modelNotAvailable);
+    } on OutOfCreditException {
+      return const ConnectionTestResult(ConnectionTestStatus.outOfCredit);
+    } on RequestTooLargeException {
+      return const ConnectionTestResult(ConnectionTestStatus.requestTooLarge);
     } on RateLimitException {
       return const ConnectionTestResult(ConnectionTestStatus.rateLimit);
     } on NetworkException catch (_) {
@@ -96,7 +106,9 @@ class ProviderConnectionService implements ConnectionTester {
       );
     } on BadResponseException {
       return const ConnectionTestResult(ConnectionTestStatus.invalidResponse);
-    } on Exception {
+    } on Object {
+      // An Error too, like dart:io's ArgumentError for a bad port, so the
+      // Test Connection button can't stay on "Testing…".
       return const ConnectionTestResult(ConnectionTestStatus.otherError);
     }
   }

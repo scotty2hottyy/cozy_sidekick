@@ -196,6 +196,129 @@ void main() {
     expect(providers[AiProviderType.groq]!.calls, 0);
   });
 
+  for (final error in <AiProviderException>[
+    const OutOfCreditException(),
+    const RequestTooLargeException(),
+  ]) {
+    test('after ${error.runtimeType}, the next route answers and the route is '
+        'not blocked', () async {
+      final now = DateTime.utc(2026, 9, 30, 16, 26);
+      final tracker = UsageTracker(now: () => now);
+      final providers = <AiProviderType, _FakeProvider>{
+        AiProviderType.openRouter: _FakeProvider(
+          const AiReply(text: ''),
+          error: error,
+        ),
+        AiProviderType.groq: _FakeProvider(const AiReply(text: 'fallback')),
+      };
+
+      expect(
+        await _router(
+          [first, second],
+          providers,
+          tracker,
+          now: () => now,
+        ).sendChat(
+          systemPrompt: 'system',
+          messages: <ChatMessage>[ChatMessage.user('Hi')],
+        ),
+        const AiReply(text: 'fallback'),
+      );
+      expect(providers[AiProviderType.groq]!.calls, 1);
+      expect((await tracker.usageFor(first)).blockedUntil, isNull);
+      expect(await tracker.isUsedUpOrBlocked(first), isFalse);
+      expect((await tracker.usageFor(first)).requests, 0);
+    });
+  }
+
+  test(
+    'when every route fails that way, the chat gets the last error',
+    () async {
+      final now = DateTime.utc(2026, 9, 30, 16, 26);
+      final tracker = UsageTracker(now: () => now);
+      const tooLarge = RequestTooLargeException();
+      final providers = <AiProviderType, _FakeProvider>{
+        AiProviderType.openRouter: _FakeProvider(
+          const AiReply(text: ''),
+          error: const OutOfCreditException(),
+        ),
+        AiProviderType.groq: _FakeProvider(
+          const AiReply(text: ''),
+          error: tooLarge,
+        ),
+      };
+
+      await expectLater(
+        _router([first, second], providers, tracker, now: () => now).sendChat(
+          systemPrompt: 'system',
+          messages: <ChatMessage>[ChatMessage.user('Hi')],
+        ),
+        throwsA(same(tooLarge)),
+      );
+      expect(providers[AiProviderType.openRouter]!.calls, 1);
+      expect(providers[AiProviderType.groq]!.calls, 1);
+    },
+  );
+
+  test(
+    'a route busy for a moment wins over a chat too long for another',
+    () async {
+      final now = DateTime.utc(2026, 9, 30, 16, 26);
+      final tracker = UsageTracker(now: () => now);
+      final providers = <AiProviderType, _FakeProvider>{
+        AiProviderType.openRouter: _FakeProvider(
+          const AiReply(text: ''),
+          error: const RateLimitException(),
+        ),
+        AiProviderType.groq: _FakeProvider(
+          const AiReply(text: ''),
+          error: const RequestTooLargeException(),
+        ),
+      };
+
+      await expectLater(
+        _router([first, second], providers, tracker, now: () => now).sendChat(
+          systemPrompt: 'system',
+          messages: <ChatMessage>[ChatMessage.user('Hi')],
+        ),
+        throwsA(
+          isA<RateLimitException>().having(
+            (error) => error.retryAt,
+            'retryAt',
+            now.add(const Duration(seconds: 1)),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'a chat too long for one route wins over another busy for hours',
+    () async {
+      final now = DateTime.utc(2026, 9, 30, 16, 26);
+      final tracker = UsageTracker(now: () => now);
+      const tooLarge = RequestTooLargeException();
+      final providers = <AiProviderType, _FakeProvider>{
+        AiProviderType.openRouter: _FakeProvider(
+          const AiReply(text: ''),
+          error: RateLimitException(retryAt: now.add(const Duration(hours: 2))),
+        ),
+        AiProviderType.groq: _FakeProvider(
+          const AiReply(text: ''),
+          error: tooLarge,
+        ),
+      };
+
+      await expectLater(
+        _router([first, second], providers, tracker, now: () => now).sendChat(
+          systemPrompt: 'system',
+          messages: <ChatMessage>[ChatMessage.user('Hi')],
+        ),
+        throwsA(same(tooLarge)),
+      );
+    },
+  );
+
   test('all exhausted routes produce a reset time', () async {
     final now = DateTime.utc(2026, 9, 29, 23);
     final tracker = UsageTracker(now: () => now);

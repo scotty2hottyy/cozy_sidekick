@@ -35,6 +35,8 @@ class CustomServerProvider implements AiProvider {
     if (token == null || token.trim().isEmpty) {
       throw const MissingApiKeyException();
     }
+    // Saving already dropped a typed /chat, so a saved URL that still ends
+    // in /chat is the server's base, as the URL field shows it.
     final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final json = await postJson(
       _client,

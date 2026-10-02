@@ -380,50 +380,50 @@ class _PersonalityDialogState extends State<_PersonalityDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    // Scrolls so the fields stay in view in landscape with the keyboard up.
+    scrollable: true,
     title: Text(
       widget.personality == null ? 'Add personality' : 'Edit personality',
     ),
     content: Form(
       key: _formKey,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            TextFormField(
-              key: const Key('personalityNameField'),
-              controller: _nameController,
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Name'),
-              validator: (value) =>
-                  value == null || value.trim().isEmpty ? 'Enter a name' : null,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          TextFormField(
+            key: const Key('personalityNameField'),
+            controller: _nameController,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Name'),
+            validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Enter a name' : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: const Key('personalityPromptField'),
+            controller: _promptController,
+            minLines: 4,
+            maxLines: 8,
+            decoration: const InputDecoration(
+              labelText: 'System instructions',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('personalityPromptField'),
-              controller: _promptController,
-              minLines: 4,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'System instructions',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? 'Enter system instructions'
-                  : null,
-            ),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _isDefault,
-              title: const Text('Use when app opens'),
-              controlAffinity: ListTileControlAffinity.leading,
-              onChanged: widget.personality?.isDefault == true
-                  ? null
-                  : (value) => setState(() => _isDefault = value ?? false),
-            ),
-          ],
-        ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter system instructions'
+                : null,
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _isDefault,
+            title: const Text('Use when app opens'),
+            controlAffinity: ListTileControlAffinity.leading,
+            onChanged: widget.personality?.isDefault == true
+                ? null
+                : (value) => setState(() => _isDefault = value ?? false),
+          ),
+        ],
       ),
     ),
     actions: <Widget>[

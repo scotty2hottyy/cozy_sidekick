@@ -12,6 +12,8 @@ void main() {
       const InvalidApiKeyException(): ConnectionTestStatus.invalidCredential,
       const ModelNotAvailableException('HTTP 403 model_not_found'):
           ConnectionTestStatus.modelNotAvailable,
+      const OutOfCreditException(): ConnectionTestStatus.outOfCredit,
+      const RequestTooLargeException(): ConnectionTestStatus.requestTooLarge,
       const NetworkException(): ConnectionTestStatus.networkUnavailable,
       const ProviderConfigurationException('bad'):
           ConnectionTestStatus.invalidConfiguration,
@@ -44,6 +46,48 @@ void main() {
     await service.testConnection(AiProviderType.openAi);
     expect(provider.lastModel, 'gpt-6-sol');
   });
+
+  test('an account without credit is not called a rate limit', () async {
+    final service = ProviderConnectionService(
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openAi: _ResultProvider(const OutOfCreditException()),
+      },
+      settingsStore: InMemorySettingsStore(),
+    );
+    final result = await service.testConnection(AiProviderType.openAi);
+    expect(
+      result.message,
+      'The credential was accepted, but the account is out of credit.',
+    );
+  });
+
+  test(
+    'an Error from the provider is a failed test, not a stuck one',
+    () async {
+      // dart:io's error for a URL with a port like 80800.
+      for (final error in <Object>[
+        ArgumentError('Invalid port 80800'),
+        StateError('internal detail'),
+        const FormatException('bad'),
+      ]) {
+        final service = ProviderConnectionService(
+          providers: <AiProviderType, AiProvider>{
+            AiProviderType.customServer: _ResultProvider(error),
+          },
+          settingsStore: InMemorySettingsStore(),
+        );
+        final result = await service.testConnection(
+          AiProviderType.customServer,
+        );
+        expect(
+          result.status,
+          ConnectionTestStatus.otherError,
+          reason: '$error',
+        );
+        expect(result.message, 'Connection test failed.');
+      }
+    },
+  );
 
   test('every status has its own message', () {
     final messages = ConnectionTestStatus.values.map(

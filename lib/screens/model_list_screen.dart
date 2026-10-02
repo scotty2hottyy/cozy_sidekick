@@ -41,8 +41,10 @@ class _ModelListScreenState extends State<ModelListScreen> {
     String? fallbackReason;
     try {
       models = await widget.modelLister.listModels(widget.provider);
-    } on AiProviderException catch (e) {
-      debugPrint('Model list failed: $e'); // never includes keys
+    } on Object catch (e) {
+      // Any error falls back, so the spinner can't stay up. Only the type is
+      // logged, so no key or provider text reaches the log.
+      debugPrint('Model list failed: ${e.runtimeType}');
       models = widget.provider.suggestedModels;
       fallbackReason = e is MissingApiKeyException
           ? 'Add a key in API Credentials to see every model. Until then, '

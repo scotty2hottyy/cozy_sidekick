@@ -21,7 +21,7 @@ void main() {
     );
     expect(
       await afterRestart.loadCustomServerBaseUrl(),
-      'https://example.com/api/',
+      'https://example.com/api',
     );
   });
 

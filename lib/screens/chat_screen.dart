@@ -60,6 +60,13 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _followingLatest = true;
   int _streamLayoutRevision = 0;
   static const double _latestThreshold = 40;
+
+  /// Below this height, as on a phone in landscape with the keyboard up, the
+  /// chat's title is hidden and the message field grows to only two lines, so
+  /// the messages stay in view. The header hides too, but only while the
+  /// keyboard is up, so a short window keeps its Conversations and Settings
+  /// buttons.
+  static const double _compactHeight = 320;
   GenerationControl? _generation;
   bool _isStopping = false;
   bool _isSending = false;
@@ -314,6 +321,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             },
                       trailing: PopupMenuButton<String>(
                         key: ValueKey('conversation-actions-${chat.id}'),
+                        tooltip: 'Conversation actions',
                         enabled: !_busy,
                         onSelected: (value) {
                           Navigator.pop(context);
@@ -528,14 +536,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _isStopping = false;
       _isSending = false;
     });
+    // Only the type is logged, so no key or provider text reaches the log.
     if (error is AiProviderException) {
-      debugPrint('Chat failed: $error'); // never includes keys
+      debugPrint('Chat failed: ${error.runtimeType}');
       _showError(
         friendlyMessage(error),
         fixIn: needsSettings(error) ? _settingsFor(error) : null,
       );
     } else {
-      debugPrint('Unexpected chat error: $error');
+      debugPrint('Unexpected chat error: ${error.runtimeType}');
       _showError('Something went wrong. Please try again.');
     }
   }
@@ -569,9 +578,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// The screen where the user fixes [error]. The model is chosen in AI
-  /// Settings, and keys and the custom server URL are set in API Credentials.
+  /// Settings, which is also where to pick a free model or a route when the
+  /// account is out of credit or the chat is too long for the model. Keys and
+  /// the custom server URL are set in API Credentials.
   Widget _settingsFor(AiProviderException error) =>
-      error is ModelNotAvailableException
+      error is ModelNotAvailableException ||
+          error is OutOfCreditException ||
+          error is RequestTooLargeException
       ? AiSettingsScreen(
           settingsStore: widget.settingsStore,
           modelLister: widget.modelLister,
@@ -665,197 +678,228 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final liveReply = _shownLiveReply;
     final hasMessages = _messages.isNotEmpty || liveReply != null;
+    // Read here, because the Scaffold removes the keyboard from its body's
+    // MediaQuery.
+    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       key: _scaffoldKey,
       drawer: _conversationDrawer(),
       drawerEnableOpenDragGesture: !_busy,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: Column(
-            children: <Widget>[
-              SafeArea(
-                bottom: false,
-                child: ChatHeader(
-                  onSettingsTap: _busy ? null : _openSettings,
-                  onChatsTap: _busy
-                      ? null
-                      : () => _scaffoldKey.currentState?.openDrawer(),
-                ),
-              ),
-              if (!_isLoading && !_historyLoadFailed)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'Chat: ${widget.chatService.conversations.active.title}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              const Divider(height: 1),
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _historyLoadFailed
-                    ? Center(
-                        child: TextButton(
-                          onPressed: () {
-                            setState(() => _isLoading = true);
-                            _loadHistory();
-                          },
-                          child: const Text('Retry loading chats'),
-                        ),
-                      )
-                    : !hasMessages
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'Say hi to your sidekick 👋',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      )
-                    : Stack(
-                        children: [
-                          CustomScrollView(
-                            key: ValueKey(
-                              'chatMessages-${widget.chatService.conversations.activeId}',
+      // Keeps the chat clear of a side notch or navigation bar in landscape.
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            // The body ends at the top of the keyboard, so its height is
+            // what's left to show the chat.
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final short = constraints.maxHeight < _compactHeight;
+                final hideHeader = keyboardUp && short;
+                return Column(
+                  children: <Widget>[
+                    SafeArea(
+                      bottom: false,
+                      child: hideHeader
+                          ? const SizedBox.shrink()
+                          : ChatHeader(
+                              onSettingsTap: _busy ? null : _openSettings,
+                              onChatsTap: _busy
+                                  ? null
+                                  : () =>
+                                        _scaffoldKey.currentState?.openDrawer(),
                             ),
-                            controller: _chatScroll,
-                            reverse: true,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            slivers: [
-                              SliverPadding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  20,
-                                  16,
-                                  12,
+                    ),
+                    if (!short && !_isLoading && !_historyLoadFailed)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          'Chat: ${widget.chatService.conversations.active.title}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _historyLoadFailed
+                          ? Center(
+                              child: TextButton(
+                                onPressed: () {
+                                  setState(() => _isLoading = true);
+                                  _loadHistory();
+                                },
+                                child: const Text('Retry loading chats'),
+                              ),
+                            )
+                          : !hasMessages
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: Text(
+                                  'Say hi to your sidekick 👋',
+                                  textAlign: TextAlign.center,
                                 ),
-                                sliver: SliverMainAxisGroup(
+                              ),
+                            )
+                          : Stack(
+                              children: [
+                                CustomScrollView(
+                                  key: ValueKey(
+                                    'chatMessages-${widget.chatService.conversations.activeId}',
+                                  ),
+                                  controller: _chatScroll,
+                                  reverse: true,
+                                  keyboardDismissBehavior:
+                                      ScrollViewKeyboardDismissBehavior.onDrag,
                                   slivers: [
-                                    AnchoredReplySliver(
-                                      revision: _streamLayoutRevision,
-                                      preservePosition: !_followingLatest,
-                                      child: SliverToBoxAdapter(
-                                        child: liveReply != null
-                                            ? Padding(
-                                                padding: const EdgeInsets.only(
-                                                  top: 12,
-                                                ),
-                                                child: MessageBubble(
-                                                  message: liveReply,
-                                                  formatting: _formatting,
-                                                  showReasoning: _showReasoning,
-                                                  reasoningExpanded:
-                                                      _liveReasoningExpanded,
-                                                  onReasoningToggle:
-                                                      _toggleLiveReasoning,
-                                                  onReadAloud: () =>
-                                                      _speak(liveReply.text),
-                                                ),
-                                              )
-                                            : _isSending
-                                            ? Padding(
-                                                padding: const EdgeInsets.only(
-                                                  top: 12,
-                                                ),
-                                                child: Row(
-                                                  children: [
-                                                    const SizedBox(
-                                                      width: 16,
-                                                      height: 16,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                            strokeWidth: 2,
-                                                          ),
-                                                    ),
-                                                    const SizedBox(width: 10),
-                                                    Text(
-                                                      _liveReply?.reasoning ==
-                                                              null
-                                                          ? 'Sidekick is typing…'
-                                                          : 'Sidekick is thinking…',
-                                                    ),
-                                                  ],
-                                                ),
-                                              )
-                                            : const SizedBox.shrink(),
+                                    SliverPadding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        20,
+                                        16,
+                                        12,
                                       ),
-                                    ),
-                                    SliverList.separated(
-                                      itemCount: _messages.length,
-                                      separatorBuilder: (_, _) =>
-                                          const SizedBox(height: 12),
-                                      itemBuilder: (_, index) {
-                                        final message =
-                                            _messages[_messages.length -
-                                                1 -
-                                                index];
-                                        return MessageBubble(
-                                          message: message,
-                                          formatting: _formatting,
-                                          showReasoning: _showReasoning,
-                                          reasoningExpanded: _expandedReasoning
-                                              .contains(message),
-                                          onReasoningToggle: () =>
-                                              _toggleReasoning(message),
-                                          onReadAloud: message.isUser
-                                              ? null
-                                              : () => _speak(message.text),
-                                        );
-                                      },
+                                      sliver: SliverMainAxisGroup(
+                                        slivers: [
+                                          AnchoredReplySliver(
+                                            revision: _streamLayoutRevision,
+                                            preservePosition: !_followingLatest,
+                                            child: SliverToBoxAdapter(
+                                              child: liveReply != null
+                                                  ? Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                            top: 12,
+                                                          ),
+                                                      child: MessageBubble(
+                                                        message: liveReply,
+                                                        formatting: _formatting,
+                                                        showReasoning:
+                                                            _showReasoning,
+                                                        reasoningExpanded:
+                                                            _liveReasoningExpanded,
+                                                        onReasoningToggle:
+                                                            _toggleLiveReasoning,
+                                                        onReadAloud: () =>
+                                                            _speak(
+                                                              liveReply.text,
+                                                            ),
+                                                      ),
+                                                    )
+                                                  : _isSending
+                                                  ? Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                            top: 12,
+                                                          ),
+                                                      child: Row(
+                                                        children: [
+                                                          const SizedBox(
+                                                            width: 16,
+                                                            height: 16,
+                                                            child:
+                                                                CircularProgressIndicator(
+                                                                  strokeWidth:
+                                                                      2,
+                                                                ),
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 10,
+                                                          ),
+                                                          Text(
+                                                            _liveReply?.reasoning ==
+                                                                    null
+                                                                ? 'Sidekick is typing…'
+                                                                : 'Sidekick is thinking…',
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    )
+                                                  : const SizedBox.shrink(),
+                                            ),
+                                          ),
+                                          SliverList.separated(
+                                            itemCount: _messages.length,
+                                            separatorBuilder: (_, _) =>
+                                                const SizedBox(height: 12),
+                                            itemBuilder: (_, index) {
+                                              final message =
+                                                  _messages[_messages.length -
+                                                      1 -
+                                                      index];
+                                              return MessageBubble(
+                                                message: message,
+                                                formatting: _formatting,
+                                                showReasoning: _showReasoning,
+                                                reasoningExpanded:
+                                                    _expandedReasoning.contains(
+                                                      message,
+                                                    ),
+                                                onReasoningToggle: () =>
+                                                    _toggleReasoning(message),
+                                                onReadAloud: message.isUser
+                                                    ? null
+                                                    : () =>
+                                                          _speak(message.text),
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ],
-                          ),
-                          if (!_followingLatest)
-                            Positioned(
-                              right: 16,
-                              bottom: 12,
-                              child: FilledButton.icon(
-                                key: const Key('jumpToLatestButton'),
-                                onPressed: _jumpToLatest,
-                                icon: const Icon(Icons.arrow_downward),
-                                label: const Text('Jump to latest'),
-                              ),
+                                if (!_followingLatest)
+                                  Positioned(
+                                    right: 16,
+                                    bottom: 12,
+                                    child: FilledButton.icon(
+                                      key: const Key('jumpToLatestButton'),
+                                      onPressed: _jumpToLatest,
+                                      icon: const Icon(Icons.arrow_downward),
+                                      label: const Text('Jump to latest'),
+                                    ),
+                                  ),
+                              ],
                             ),
-                        ],
+                    ),
+                    if (_isSpeaking)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const Icon(Icons.volume_up_rounded, size: 18),
+                            const SizedBox(width: 8),
+                            const Text('Speaking…'),
+                            const SizedBox(width: 8),
+                            TextButton.icon(
+                              key: const Key('stopSpeakingButton'),
+                              onPressed: _stopSpeaking,
+                              icon: const Icon(Icons.stop_rounded),
+                              label: const Text('Stop'),
+                            ),
+                          ],
+                        ),
                       ),
-              ),
-              if (_isSpeaking)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      const Icon(Icons.volume_up_rounded, size: 18),
-                      const SizedBox(width: 8),
-                      const Text('Speaking…'),
-                      const SizedBox(width: 8),
-                      TextButton.icon(
-                        key: const Key('stopSpeakingButton'),
-                        onPressed: _stopSpeaking,
-                        icon: const Icon(Icons.stop_rounded),
-                        label: const Text('Stop'),
-                      ),
-                    ],
-                  ),
-                ),
-              MessageComposer(
-                controller: _composerController,
-                onSend: _send,
-                onMicrophoneTap: _toggleSpeech,
-                isGenerating: _isSending,
-                onStop: _isStopping ? null : _stopGeneration,
-                enabled: !_busy,
-                isListening: _speechState == SpeechServiceState.listening,
-              ),
-            ],
+                    MessageComposer(
+                      controller: _composerController,
+                      onSend: _send,
+                      onMicrophoneTap: _toggleSpeech,
+                      isGenerating: _isSending,
+                      onStop: _isStopping ? null : _stopGeneration,
+                      enabled: !_busy,
+                      isListening: _speechState == SpeechServiceState.listening,
+                      maxLines: short ? 2 : 5,
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -884,6 +928,8 @@ class _RenameConversationDialogState extends State<_RenameConversationDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    // Scrolls so the field stays in view in landscape with the keyboard up.
+    scrollable: true,
     title: const Text('Rename conversation'),
     content: Form(
       key: _form,

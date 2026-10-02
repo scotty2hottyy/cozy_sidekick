@@ -92,10 +92,10 @@ class SettingsService implements AppSettingsStore {
   Future<void> saveCustomServerBaseUrl(String url) async {
     final trimmed = url.trim();
     if (trimmed.isNotEmpty && !isValidBaseUrl(trimmed)) {
-      throw ArgumentError('Base URL must use http:// or https://');
+      throw ArgumentError('Base URL must be a valid http:// or https:// URL');
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_customUrlKey, trimmed);
+    await prefs.setString(_customUrlKey, normalizeBaseUrl(trimmed));
   }
 
   @override
@@ -202,11 +202,45 @@ class SettingsService implements AppSettingsStore {
     );
   }
 
+  /// Whether [value] is an http or https URL with a host, and a port HTTP
+  /// can use when it has one. dart:io throws an ArgumentError for a port
+  /// like 80800.
   static bool isValidBaseUrl(String value) {
     final uri = Uri.tryParse(value.trim());
     return uri != null &&
         (uri.scheme == 'http' || uri.scheme == 'https') &&
-        uri.host.isNotEmpty;
+        uri.host.isNotEmpty &&
+        (!uri.hasPort || _isUsablePort(uri));
+  }
+
+  static bool _isUsablePort(Uri uri) {
+    try {
+      return uri.port >= 1 && uri.port <= 65535;
+    } on FormatException {
+      // Too many digits to read as a number.
+      return false;
+    }
+  }
+
+  /// [value] trimmed, without trailing slashes or a last `/chat` segment.
+  /// The custom server provider adds `/chat` itself, so a user who types
+  /// the whole endpoint still reaches it, not `/chat/chat`. Only saving
+  /// applies it, so the saved URL is the base the provider uses.
+  static String normalizeBaseUrl(String value) {
+    final trailingSlashes = RegExp(r'/+$');
+    final base = value.trim().replaceFirst(trailingSlashes, '');
+    final uri = Uri.tryParse(base);
+    // Only a path segment, never a host named "chat".
+    if (uri == null ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !uri.path.endsWith('/chat') ||
+        !base.endsWith('/chat')) {
+      return base;
+    }
+    return base
+        .substring(0, base.length - '/chat'.length)
+        .replaceFirst(trailingSlashes, '');
   }
 }
 
@@ -258,9 +292,9 @@ class InMemorySettingsStore implements AppSettingsStore {
   Future<void> saveCustomServerBaseUrl(String url) async {
     final trimmed = url.trim();
     if (trimmed.isNotEmpty && !SettingsService.isValidBaseUrl(trimmed)) {
-      throw ArgumentError('Base URL must use http:// or https://');
+      throw ArgumentError('Base URL must be a valid http:// or https:// URL');
     }
-    customServerBaseUrl = trimmed;
+    customServerBaseUrl = SettingsService.normalizeBaseUrl(trimmed);
   }
 
   @override

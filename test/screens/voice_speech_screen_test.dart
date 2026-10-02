@@ -103,6 +103,68 @@ void main() {
       expect(tts.lastRate, settings.speechSettings.rate);
     },
   );
+
+  for (final scale in <double>[1, 2]) {
+    testWidgets('long names fit a 320 px wide phone with ${scale}x text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      const voice = SpeechVoice(
+        name: 'Mandarin Chinese Female Voice',
+        locale: 'zh-CN',
+      );
+      await tester.pumpWidget(
+        _screen(
+          InMemorySettingsStore(
+            speechSettings: SpeechSettings(
+              languageId: 'zh-CN',
+              voiceName: voice.name,
+              voiceLocale: voice.locale,
+            ),
+          ),
+          _FakeSpeechService(
+            languages: const <SpeechLanguage>[
+              SpeechLanguage(id: 'en-US', name: 'English (United States)'),
+              SpeechLanguage(
+                id: 'zh-CN',
+                name: 'Mandarin Chinese (Simplified, China)',
+              ),
+              SpeechLanguage(
+                id: 'yue-HK',
+                name: 'Cantonese (Traditional, Hong Kong)',
+              ),
+            ],
+          ),
+          _FakeTextToSpeechService(availableVoices: const [voice]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      for (final key in ['speechLanguageDropdown', 'speechVoiceDropdown']) {
+        final dropdown = find.byKey(Key(key));
+        await tester.scrollUntilVisible(dropdown, 100);
+        await tester.pumpAndSettle();
+        await tester.tap(dropdown);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        // Picks the long name again, which closes the menu.
+        await tester.tap(
+          find
+              .textContaining(
+                key == 'speechVoiceDropdown' ? 'Female' : 'Mandarin',
+              )
+              .last,
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
 }
 
 Widget _screen(
