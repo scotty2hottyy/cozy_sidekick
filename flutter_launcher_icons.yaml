@@ -1,0 +1,10 @@
+# Regenerate the launcher icons after changing the images in assets/icon:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/icon/app_icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  # Android 8+ adaptive icon: the sparkles over the chat header's peach color.
+  adaptive_icon_background: "#FFD99B"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
