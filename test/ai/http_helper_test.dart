@@ -749,6 +749,85 @@ void main() {
       );
     }
   });
+
+  group('errors that trying again cannot fix', () {
+    // What OpenAI sends when the account has no credit left.
+    const insufficientQuota =
+        '{"error":{"message":"You exceeded your current quota, please check '
+        'your plan and billing details.","type":"insufficient_quota",'
+        '"param":null,"code":"insufficient_quota"}}';
+    const creditBalanceExhausted =
+        '{"error":{"message":"Your credit balance is exhausted.",'
+        '"type":"requests","code":"credit_balance_exhausted"}}';
+    // OpenRouter, for a paid model on an account without credit.
+    const insufficientCredits =
+        '{"error":{"message":"Insufficient credits. Add more using '
+        'https://openrouter.ai/settings/credits","code":402}}';
+    const contextLengthExceeded =
+        '{"error":{"message":"This model\'s maximum context length is 8192 '
+        'tokens.","type":"invalid_request_error","param":"messages",'
+        '"code":"context_length_exceeded"}}';
+    // Groq, for a request over the free tokens-per-minute limit.
+    const requestTooLarge =
+        '{"error":{"message":"Request too large for model `openai/gpt-oss-20b` '
+        'on tokens per minute (TPM): Limit 8000, Requested 9120",'
+        '"type":"tokens","code":"rate_limit_exceeded"}}';
+
+    final cases = <(int, String, Type)>[
+      (402, insufficientCredits, OutOfCreditException),
+      (402, '', OutOfCreditException),
+      (429, insufficientQuota, OutOfCreditException),
+      (429, creditBalanceExhausted, OutOfCreditException),
+      (
+        429,
+        '{"error":{"message":"No credit","type":"insufficient_quota",'
+            '"code":null}}',
+        OutOfCreditException,
+      ),
+      (413, requestTooLarge, RequestTooLargeException),
+      (413, '<html>Too large</html>', RequestTooLargeException),
+      (400, contextLengthExceeded, RequestTooLargeException),
+      // A plain rate limit still asks the user to wait.
+      (
+        429,
+        '{"error":{"message":"Rate limit reached","type":"requests",'
+            '"code":"rate_limit_exceeded"}}',
+        RateLimitException,
+      ),
+    ];
+
+    test('map from a JSON reply', () async {
+      for (final (code, body, type) in cases) {
+        await expectLater(
+          _post(code, body),
+          throwsA(
+            isA<AiProviderException>().having(
+              (e) => e.runtimeType,
+              'type',
+              type,
+            ),
+          ),
+          reason: '$code $body',
+        );
+      }
+    });
+
+    test('map the same before a stream starts', () async {
+      for (final (code, body, type) in cases) {
+        await expectLater(
+          _events(_bytes(body), statusCode: code),
+          emitsError(
+            isA<AiProviderException>().having(
+              (e) => e.runtimeType,
+              'type',
+              type,
+            ),
+          ),
+          reason: '$code $body',
+        );
+      }
+    });
+  });
 }
 
 // What OpenAI sends when a project's model allowlist blocks the model.

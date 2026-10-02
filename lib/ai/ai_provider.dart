@@ -150,6 +150,19 @@ class QuotaExhaustedException extends AiProviderException {
   final DateTime? resetAt;
 }
 
+/// The account has no credit left for the model, which trying again can't
+/// fix: OpenRouter's 402, or OpenAI's 429 `insufficient_quota`.
+class OutOfCreditException extends AiProviderException {
+  const OutOfCreditException([super.debugMessage = 'HTTP 402']);
+}
+
+/// The chat is too long for the model: a 413, like Groq's for a request
+/// over its tokens-per-minute limit, or OpenAI's 400
+/// `context_length_exceeded`. Sending it again fails the same way.
+class RequestTooLargeException extends AiProviderException {
+  const RequestTooLargeException([super.debugMessage = 'HTTP 413']);
+}
+
 class ProviderUnavailableException extends AiProviderException {
   const ProviderUnavailableException([super.debugMessage = 'HTTP 5xx']);
 }

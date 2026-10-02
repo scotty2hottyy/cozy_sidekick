@@ -195,11 +195,27 @@ void _checkStatus(http.Response response) {
     if (modelError != null) throw modelError;
   }
 
+  if (code == 400 &&
+      _errorObject(response)?['code'] == 'context_length_exceeded') {
+    throw const RequestTooLargeException('HTTP 400 context_length_exceeded');
+  }
+
   if (code == 401 || code == 403) {
     throw const InvalidApiKeyException();
   }
 
+  // OpenRouter, when the account has no credit for a paid model.
+  if (code == 402) {
+    throw const OutOfCreditException();
+  }
+
+  if (code == 413) {
+    throw const RequestTooLargeException();
+  }
+
   if (code == 429) {
+    final outOfCredit = _outOfCredit(response);
+    if (outOfCredit != null) throw outOfCredit;
     throw RateLimitException(retryAt: _retryAt(response));
   }
 
@@ -295,34 +311,62 @@ String? _openRouterResetInBody(String body) {
 ///   settings.
 ModelNotAvailableException? _modelNotAvailable(http.Response response) {
   final status = response.statusCode;
+  final error = _errorObject(response);
 
+  if (error == null) return null;
+
+  final code = error['code'];
+  final message = error['message'];
+
+  final isModelError = switch (code) {
+    'model_not_found' || 'model_decommissioned' => true,
+    400 => message is String && message.contains('not a valid model ID'),
+    404 => status == 404,
+    _ => false,
+  };
+
+  if (isModelError) {
+    // The message names the model (and OpenAI's the project), which helps
+    // in logs.
+    return ModelNotAvailableException(
+      'HTTP $status${code is String ? ' $code' : ''}'
+      '${message is String ? ': $message' : ''}',
+    );
+  }
+
+  return null;
+}
+
+/// The error for a 429 [response] that says the account is out of credit,
+/// or null for one that only asks to slow down.
+///
+/// OpenAI sends `"code": "insufficient_quota"` or `credit_balance_exhausted`
+/// when the account has no prepaid credit or has reached its spend limit,
+/// and its `type` can be `insufficient_quota` too. Trying again won't help.
+OutOfCreditException? _outOfCredit(http.Response response) {
+  final error = _errorObject(response);
+  final code = error?['code'];
+
+  if (code == 'insufficient_quota' ||
+      code == 'credit_balance_exhausted' ||
+      error?['type'] == 'insufficient_quota') {
+    return OutOfCreditException(
+      'HTTP 429 ${code is String ? code : 'insufficient_quota'}',
+    );
+  }
+
+  return null;
+}
+
+/// The `error` object in [response]'s JSON body, or null when it has none.
+Map<String, dynamic>? _errorObject(http.Response response) {
   try {
     final decoded = jsonDecode(response.body);
     final error = decoded is Map<String, dynamic> ? decoded['error'] : null;
 
-    if (error is! Map<String, dynamic>) return null;
-
-    final code = error['code'];
-    final message = error['message'];
-
-    final isModelError = switch (code) {
-      'model_not_found' || 'model_decommissioned' => true,
-      400 => message is String && message.contains('not a valid model ID'),
-      404 => status == 404,
-      _ => false,
-    };
-
-    if (isModelError) {
-      // The message names the model (and OpenAI's the project), which helps
-      // in logs.
-      return ModelNotAvailableException(
-        'HTTP $status${code is String ? ' $code' : ''}'
-        '${message is String ? ': $message' : ''}',
-      );
-    }
+    return error is Map<String, dynamic> ? error : null;
   } on FormatException {
-    // Not JSON, so it isn't a model error.
+    // Not JSON, so it has no error object.
+    return null;
   }
-
-  return null;
 }

@@ -576,9 +576,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// The screen where the user fixes [error]. The model is chosen in AI
-  /// Settings, and keys and the custom server URL are set in API Credentials.
+  /// Settings, which is also where to pick a free model or a route when the
+  /// account is out of credit or the chat is too long for the model. Keys and
+  /// the custom server URL are set in API Credentials.
   Widget _settingsFor(AiProviderException error) =>
-      error is ModelNotAvailableException
+      error is ModelNotAvailableException ||
+          error is OutOfCreditException ||
+          error is RequestTooLargeException
       ? AiSettingsScreen(
           settingsStore: widget.settingsStore,
           modelLister: widget.modelLister,

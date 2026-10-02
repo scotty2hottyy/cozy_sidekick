@@ -12,6 +12,8 @@ void main() {
       const InvalidApiKeyException(): ConnectionTestStatus.invalidCredential,
       const ModelNotAvailableException('HTTP 403 model_not_found'):
           ConnectionTestStatus.modelNotAvailable,
+      const OutOfCreditException(): ConnectionTestStatus.outOfCredit,
+      const RequestTooLargeException(): ConnectionTestStatus.requestTooLarge,
       const NetworkException(): ConnectionTestStatus.networkUnavailable,
       const ProviderConfigurationException('bad'):
           ConnectionTestStatus.invalidConfiguration,
@@ -43,6 +45,20 @@ void main() {
     await settings.saveModel(AiProviderType.openAi, 'gpt-6-sol');
     await service.testConnection(AiProviderType.openAi);
     expect(provider.lastModel, 'gpt-6-sol');
+  });
+
+  test('an account without credit is not called a rate limit', () async {
+    final service = ProviderConnectionService(
+      providers: <AiProviderType, AiProvider>{
+        AiProviderType.openAi: _ResultProvider(const OutOfCreditException()),
+      },
+      settingsStore: InMemorySettingsStore(),
+    );
+    final result = await service.testConnection(AiProviderType.openAi);
+    expect(
+      result.message,
+      'The credential was accepted, but the account is out of credit.',
+    );
   });
 
   test(

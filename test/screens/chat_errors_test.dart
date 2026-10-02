@@ -18,6 +18,55 @@ import '../fake_chat_history_store.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
+  for (final (error, message) in <(AiProviderException, String)>[
+    (
+      const OutOfCreditException(),
+      'Your account is out of credit. Add credit with the provider or pick '
+          'a free model.',
+    ),
+    (
+      const RequestTooLargeException(),
+      'This chat is too long for this model. Start a new chat or pick '
+          'another model.',
+    ),
+  ]) {
+    testWidgets('${error.runtimeType} opens AI Settings, not Retry', (
+      tester,
+    ) async {
+      final provider = _FlakyProvider(<Object>[error]);
+      await tester.pumpWidget(_app(provider));
+      await tester.pumpAndSettle();
+      await _sendMessage(tester, 'Hello');
+
+      expect(find.text(message), findsOneWidget);
+      expect(find.widgetWithText(SnackBarAction, 'Retry'), findsNothing);
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Settings'));
+      await tester.pumpAndSettle();
+      expect(find.text('AI Settings'), findsOneWidget);
+      expect(find.byType(DropdownMenu<String>), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(provider.calls, 2);
+      expect(find.text('Provider: Hello'), findsOneWidget);
+    });
+  }
+
+  testWidgets('a long rate limit says when to try again', (tester) async {
+    final retryAt = DateTime.now().toUtc().add(const Duration(hours: 2));
+    await tester.pumpWidget(
+      _app(_FlakyProvider(<Object>[RateLimitException(retryAt: retryAt)])),
+    );
+    await tester.pumpAndSettle();
+    await _sendMessage(tester, 'Hello');
+
+    expect(
+      find.textContaining('Too many messages right now. Try again after '),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Wait a moment'), findsNothing);
+    expect(find.widgetWithText(SnackBarAction, 'Retry'), findsOneWidget);
+  });
+
   for (final (error, logged) in <(Object, String)>[
     (
       const ModelNotAvailableException(

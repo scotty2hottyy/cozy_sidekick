@@ -37,6 +37,9 @@ class AutoRouter implements AiProvider {
   }) async* {
     var rateLimited = false;
     var missingKey = false;
+    // The last error from a route that waiting can't fix, like an account
+    // out of credit or a chat too long for the model.
+    AiProviderException? lastUnfixable;
     DateTime? earliestReset;
     // The soonest a route that's only busy, after a 429, can be tried again.
     DateTime? earliestBusy;
@@ -101,11 +104,20 @@ class AutoRouter implements AiProvider {
         if (retryAt.isBefore(midnight)) busyUntil(retryAt);
       } on MissingApiKeyException {
         missingKey = true;
+      } on OutOfCreditException catch (error) {
+        // Another route may still work. This one isn't busy, so it isn't
+        // blocked.
+        lastUnfixable = error;
+      } on RequestTooLargeException catch (error) {
+        lastUnfixable = error;
       } on NetworkException {
         rethrow;
       }
     }
 
+    // The user has to change something before that route works again, so
+    // the chat says what.
+    if (lastUnfixable != null) throw lastUnfixable;
     // A busy route can be tried again soon, so the chat says to wait a
     // moment rather than that the free routes are used up.
     if (earliestBusy != null) throw RateLimitException(retryAt: earliestBusy);

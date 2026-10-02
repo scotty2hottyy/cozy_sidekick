@@ -455,7 +455,7 @@ String routeStatus(QuotaRoute route, RouteUsage usage, DateTime now) {
       return 'Used up · resets ${formatUtcTime(reset)}';
     }
     // A 429 without a time from the provider waits only a second.
-    return reset.difference(nowUtc) < const Duration(minutes: 1)
+    return isShortWait(reset, nowUtc)
         ? 'Busy · try again in a moment'
         : 'Busy · try again after ${formatUtcTime(reset)}';
   }
@@ -487,14 +487,6 @@ String formatAmount(
     QuotaUnit.tokens => amount == 1 ? 'token' : 'tokens',
   };
   return free ? '$number free $name' : '$number $name';
-}
-
-/// [dateTime] in UTC, like "12:00 AM UTC".
-String formatUtcTime(DateTime dateTime) {
-  final time = dateTime.toUtc();
-  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
-  final minute = time.minute.toString().padLeft(2, '0');
-  return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'} UTC';
 }
 
 /// 1234567 as "1,234,567".
