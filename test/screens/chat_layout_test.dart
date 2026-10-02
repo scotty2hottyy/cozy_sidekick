@@ -97,6 +97,29 @@ void main() {
     });
   }
 
+  // Split-screen on a small phone, and landscape at the largest display size.
+  for (final size in const [Size(360, 300), Size(360, 280), Size(568, 319)]) {
+    testWidgets('a short window $size without the keyboard keeps the header '
+        'buttons and the messages', (tester) async {
+      _setScreen(tester, size);
+      await tester.pumpWidget(_app(messages: 20));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('messageInput')),
+        'This is a long message, about two hundred and fifty letters. ' * 4,
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('chatsButton')), findsOneWidget);
+      expect(find.byKey(const Key('settingsButton')), findsOneWidget);
+      expect(find.textContaining('Chat: '), findsNothing);
+      expect(_input(tester).maxLines, 2);
+      final list = tester.getRect(find.byType(CustomScrollView));
+      expect(list.height, greaterThan(0));
+    });
+  }
+
   testWidgets('landscape keeps the chat clear of a side navigation bar', (
     tester,
   ) async {

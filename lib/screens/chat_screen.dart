@@ -62,8 +62,10 @@ class _ChatScreenState extends State<ChatScreen> {
   static const double _latestThreshold = 40;
 
   /// Below this height, as on a phone in landscape with the keyboard up, the
-  /// header and the chat's title are hidden and the message field grows to
-  /// only two lines, so the messages stay in view.
+  /// chat's title is hidden and the message field grows to only two lines, so
+  /// the messages stay in view. The header hides too, but only while the
+  /// keyboard is up, so a short window keeps its Conversations and Settings
+  /// buttons.
   static const double _compactHeight = 320;
   GenerationControl? _generation;
   bool _isStopping = false;
@@ -676,6 +678,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final liveReply = _shownLiveReply;
     final hasMessages = _messages.isNotEmpty || liveReply != null;
+    // Read here, because the Scaffold removes the keyboard from its body's
+    // MediaQuery.
+    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       key: _scaffoldKey,
       drawer: _conversationDrawer(),
@@ -691,12 +696,13 @@ class _ChatScreenState extends State<ChatScreen> {
             // what's left to show the chat.
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final compact = constraints.maxHeight < _compactHeight;
+                final short = constraints.maxHeight < _compactHeight;
+                final hideHeader = keyboardUp && short;
                 return Column(
                   children: <Widget>[
                     SafeArea(
                       bottom: false,
-                      child: compact
+                      child: hideHeader
                           ? const SizedBox.shrink()
                           : ChatHeader(
                               onSettingsTap: _busy ? null : _openSettings,
@@ -706,7 +712,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         _scaffoldKey.currentState?.openDrawer(),
                             ),
                     ),
-                    if (!compact && !_isLoading && !_historyLoadFailed)
+                    if (!short && !_isLoading && !_historyLoadFailed)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
@@ -888,7 +894,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onStop: _isStopping ? null : _stopGeneration,
                       enabled: !_busy,
                       isListening: _speechState == SpeechServiceState.listening,
-                      maxLines: compact ? 2 : 5,
+                      maxLines: short ? 2 : 5,
                     ),
                   ],
                 );
