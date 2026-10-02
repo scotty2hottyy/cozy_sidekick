@@ -35,7 +35,8 @@ class CustomServerProvider implements AiProvider {
     if (token == null || token.trim().isEmpty) {
       throw const MissingApiKeyException();
     }
-    final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    // A URL saved before saving normalized it can still end in /chat.
+    final base = SettingsService.normalizeBaseUrl(baseUrl);
     final json = await postJson(
       _client,
       Uri.parse('$base/chat'),

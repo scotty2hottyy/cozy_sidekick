@@ -175,4 +175,50 @@ void main() {
     expect(body.keys, <String>['messages']);
     expect(captured.body, isNot(contains('gpt-6-sol')));
   });
+
+  test('a URL saved with /chat posts to /chat once', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.customServer, 'token');
+    for (final saved in <String>[
+      'https://example.com/chat',
+      ' https://example.com/chat/ ',
+    ]) {
+      final urls = <Uri>[];
+      final provider = CustomServerProvider(
+        keyStore: keys,
+        // Set directly, like a URL saved before saving normalized it.
+        settingsStore: InMemorySettingsStore(customServerBaseUrl: saved),
+        client: MockClient((request) async {
+          urls.add(request.url);
+          return http.Response('{"message":"hi"}', 200);
+        }),
+      );
+      await provider.sendChat(
+        systemPrompt: 'system',
+        messages: <ChatMessage>[ChatMessage.user('hello')],
+      );
+      expect(urls, <Uri>[Uri.parse('https://example.com/chat')], reason: saved);
+    }
+  });
+
+  test('a saved URL with a bad port is a setup problem', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.customServer, 'token');
+    var sent = 0;
+    final provider = CustomServerProvider(
+      keyStore: keys,
+      settingsStore: InMemorySettingsStore(
+        customServerBaseUrl: 'http://192.168.1.10:80800',
+      ),
+      client: MockClient((_) async {
+        sent++;
+        return http.Response('{"message":"hi"}', 200);
+      }),
+    );
+    await expectLater(
+      provider.sendChat(systemPrompt: '', messages: <ChatMessage>[]),
+      throwsA(isA<ProviderConfigurationException>()),
+    );
+    expect(sent, 0);
+  });
 }
