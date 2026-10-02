@@ -27,6 +27,16 @@ The personality/system instructions live in the app rather than on the server.
 - API credentials must not be hard-coded into the repository.
 
 ## Completed
+### Issue #17 - Android configuration
+
+- The main `AndroidManifest.xml` now has the `INTERNET` permission. Before this, only the debug and profile manifests had it, so `flutter run` worked but every network call in the release APK failed with the "Can't connect" message.
+- The launcher name is Cozy Sidekick, and `applicationId` is `com.sonniersolution.cozysidekick` to match iOS. The Kotlin `namespace` stays `com.example.cozy_sidekick`, because changing it means moving `MainActivity.kt`. The new ID installs next to older `com.example.cozy_sidekick` builds instead of over them.
+- Backups are off (`android:allowBackup="false"`), and `res/xml/data_extraction_rules.xml` also leaves flutter_secure_storage's two files out of device-to-device transfer on Android 12+. Those keys are encrypted with a Keystore key that never leaves the phone, so a restored copy can't be decrypted.
+- Release builds are still signed with the debug key on purpose (sideloading for class demos). CI makes a new debug key on every run, so uninstall an earlier build before installing a new one.
+- The launcher icon is three sparkles on the chat header's peach color (`#FFD99B`), for Android (including an adaptive icon) and iOS. The source images are in `assets/icon/` and the settings in `flutter_launcher_icons.yaml`. After changing the images, run `dart run flutter_launcher_icons`, then revert its change to `ios/Runner.xcodeproj/project.pbxproj`: version 0.14.4 wrongly sets `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS` to `AppIcon`.
+- Plain `http://` custom server URLs work in release builds without a network security config, because Dart's own sockets don't go through Android's cleartext policy.
+- Validation: `flutter analyze` passes; `flutter test` passes (393 tests). A local `flutter build apk --release` on the Android emulator (API 36): a fresh install asked for a key, Test Connection and a chat reply worked against a local mock custom server over `http://10.0.2.2`, and the launcher shows the new name and icon. `aapt2` confirms the permission, label, package name and `allowBackup=false`.
+
 ### Issue #18 - iOS configuration
 
 - Runner uses `com.sonniersolution.cozysidekick` for Debug, Release, and Profile; RunnerTests uses `com.sonniersolution.cozysidekick.RunnerTests`.
