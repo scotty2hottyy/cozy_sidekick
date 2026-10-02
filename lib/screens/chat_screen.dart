@@ -319,6 +319,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             },
                       trailing: PopupMenuButton<String>(
                         key: ValueKey('conversation-actions-${chat.id}'),
+                        tooltip: 'Conversation actions',
                         enabled: !_busy,
                         onSelected: (value) {
                           Navigator.pop(context);

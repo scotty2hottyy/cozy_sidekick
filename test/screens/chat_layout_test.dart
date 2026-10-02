@@ -164,6 +164,16 @@ void main() {
     expect(store.state!.conversations.single.title, 'Landscape chat');
   });
 
+  testWidgets('each conversation menu has its own tooltip', (tester) async {
+    await tester.pumpWidget(_app(messages: 1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chatsButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Conversation actions'), findsOneWidget);
+    expect(find.byTooltip('Show menu'), findsNothing);
+  });
+
   testWidgets('header buttons work with large text', (tester) async {
     _setScreen(tester, const Size(375, 800));
     tester.platformDispatcher.textScaleFactorTestValue = 2;
