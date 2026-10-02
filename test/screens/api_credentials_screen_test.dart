@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _badCharacters =
-    "This key has characters that aren't allowed. Paste it again.";
+const _badKey =
+    'This API key has a hidden or unsupported character. '
+    'Copy it again from where you got it.';
 const _keyField = ValueKey<String>('credential-openRouter');
 const _saveButton = ValueKey<String>('save-openRouter');
 
@@ -29,28 +30,82 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('a key with an invisible character is not saved', (tester) async {
+  testWidgets('a key with an unsupported character is not saved', (
+    tester,
+  ) async {
     final keys = InMemoryApiKeyStore();
     await pumpScreen(tester, keys);
 
-    await tester.enterText(find.byKey(_keyField), 'sk-or-​abc');
+    await tester.enterText(find.byKey(_keyField), 'sk-or-\u00e9bc');
     await tester.pump();
     await tester.tap(find.byKey(_saveButton));
     await tester.pumpAndSettle();
 
-    expect(find.text(_badCharacters), findsOneWidget);
+    expect(find.text(_badKey), findsOneWidget);
     expect(await keys.read(AiProviderType.openRouter), isNull);
     final field = tester.widget<TextField>(find.byKey(_keyField));
     expect(field.controller!.text, isEmpty);
 
     await tester.enterText(find.byKey(_keyField), ' sk-or-abc ');
     await tester.pump();
-    expect(find.text(_badCharacters), findsNothing);
+    expect(find.text(_badKey), findsNothing);
     await tester.tap(find.byKey(_saveButton));
     await tester.pumpAndSettle();
 
     expect(await keys.read(AiProviderType.openRouter), 'sk-or-abc');
     expect(find.byKey(_keyField), findsNothing);
+  });
+
+  testWidgets('a key with a trailing zero-width space is saved without it', (
+    tester,
+  ) async {
+    final keys = InMemoryApiKeyStore();
+    await pumpScreen(tester, keys);
+
+    await tester.enterText(find.byKey(_keyField), 'sk-or-abc\u200b');
+    await tester.pump();
+    await tester.tap(find.byKey(_saveButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text(_badKey), findsNothing);
+    expect(await keys.read(AiProviderType.openRouter), 'sk-or-abc');
+    expect(find.byKey(_keyField), findsNothing);
+  });
+
+  testWidgets('Save stays off when only invisible characters are entered', (
+    tester,
+  ) async {
+    await pumpScreen(tester, InMemoryApiKeyStore());
+
+    await tester.enterText(find.byKey(_keyField), '\u200b\u2060');
+    await tester.pump();
+
+    final save = tester.widget<FilledButton>(find.byKey(_saveButton));
+    expect(save.onPressed, isNull);
+  });
+
+  testWidgets('a rejected access token is called a token in the message', (
+    tester,
+  ) async {
+    final keys = InMemoryApiKeyStore();
+    await pumpScreen(tester, keys);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('credential-customServer')),
+      'tok\u0007en',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('save-customServer')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'This access token has a hidden or unsupported character. '
+        'Copy it again from where you got it.',
+      ),
+      findsOneWidget,
+    );
+    expect(await keys.read(AiProviderType.customServer), isNull);
   });
 
   testWidgets('saving a custom server URL shows the cleaned-up URL', (

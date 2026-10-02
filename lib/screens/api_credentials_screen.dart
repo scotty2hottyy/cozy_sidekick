@@ -150,24 +150,42 @@ class _CredentialCardState extends State<_CredentialCard> {
     if (mounted) setState(() => _hasSecret = value);
   }
 
-  /// Keys and tokens only use visible ASCII. Anything else, such as an
-  /// invisible character picked up in copy and paste, would break requests.
+  /// Invisible characters that copy and paste can add, such as a zero-width
+  /// space. No key or token contains them, so they are removed before saving.
+  static final RegExp _invisibleCharacters = RegExp(
+    r'[\u00AD\u200B-\u200D\u2060\uFEFF]',
+  );
+
+  /// Keys and tokens only use visible ASCII. Anything else, such as a space
+  /// or an accented letter, would break requests.
   static bool _isAllowedSecret(String value) =>
       value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
+
+  String get _enteredSecret =>
+      _controller.text.replaceAll(_invisibleCharacters, '').trim();
+
+  /// The field's label as it reads mid-sentence: "API key" keeps its
+  /// capitals and "Access token" becomes "access token".
+  String get _secretName {
+    final label = widget.provider.secretLabel;
+    final firstWord = label.split(' ').first;
+    return firstWord == firstWord.toUpperCase() ? label : label.toLowerCase();
+  }
 
   void _showMessage(String message) =>
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _save() async {
-    final value = _controller.text.trim();
+    final value = _enteredSecret;
     if (value.isEmpty) return;
     if (!_isAllowedSecret(value)) {
       // Clear it so pasting again replaces the bad key instead of adding to it.
       _controller.clear();
       setState(
         () => _secretError =
-            "This key has characters that aren't allowed. Paste it again.",
+            'This $_secretName has a hidden or unsupported character. '
+            'Copy it again from where you got it.',
       );
       return;
     }
@@ -277,7 +295,7 @@ class _CredentialCardState extends State<_CredentialCard> {
               ] else
                 FilledButton(
                   key: ValueKey<String>('save-${widget.provider.name}'),
-                  onPressed: _controller.text.trim().isEmpty ? null : _save,
+                  onPressed: _enteredSecret.isEmpty ? null : _save,
                   child: const Text('Save'),
                 ),
               OutlinedButton(
