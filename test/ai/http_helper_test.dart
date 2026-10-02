@@ -630,6 +630,125 @@ void main() {
       );
     });
   });
+
+  group('a header value HTTP cannot hold', () {
+    // A key pasted with a zero-width space after "FAKE".
+    const pasted = 'FAKE\u200b-test-key';
+
+    test('is a key problem, and nothing is sent', () async {
+      var sent = 0;
+      final client = MockClient((_) async {
+        sent++;
+        return http.Response('{}', 200);
+      });
+      final streamingClient = MockClient.streaming((_, _) async {
+        sent++;
+        return http.StreamedResponse(_bytes('data: [DONE]\n\n'), 200);
+      });
+      final url = Uri.parse('https://example.com');
+      const headers = <String, String>{'Authorization': 'Bearer $pasted'};
+      final noKey = isA<InvalidApiKeyException>().having(
+        (e) => '$e',
+        'toString',
+        isNot(contains('FAKE')),
+      );
+
+      await expectLater(
+        postJson(client, url, headers: headers, body: <String, Object?>{}),
+        throwsA(noKey),
+      );
+      await expectLater(
+        postJson(
+          client,
+          url,
+          headers: headers,
+          body: <String, Object?>{},
+          abortTrigger: Completer<void>().future,
+        ),
+        throwsA(noKey),
+      );
+      await expectLater(getJson(client, url, headers: headers), throwsA(noKey));
+      await expectLater(
+        postEventStream(
+          streamingClient,
+          url,
+          headers: headers,
+          body: <String, Object?>{},
+        ),
+        emitsError(noKey),
+      );
+      expect(sent, 0);
+    });
+
+    test('includes control characters and non-ASCII letters', () async {
+      for (final token in <String>['line\nbreak', 'caf\u00e9', 'del\u007f']) {
+        await expectLater(
+          getJson(
+            MockClient((_) async => http.Response('{}', 200)),
+            Uri.parse('https://example.com'),
+            headers: <String, String>{'Authorization': 'Bearer $token'},
+          ),
+          throwsA(isA<InvalidApiKeyException>()),
+          reason: token,
+        );
+      }
+    });
+
+    test('does not include a tab or printable ASCII', () async {
+      final json = await getJson(
+        MockClient((_) async => http.Response('{}', 200)),
+        Uri.parse('https://example.com'),
+        headers: <String, String>{'Authorization': 'Bearer a\tb ~!'},
+      );
+      expect(json, isEmpty);
+    });
+  });
+
+  test('TLS and dropped-connection errors are network errors', () async {
+    final url = Uri.parse('https://example.com');
+    // A captive portal or a self-signed certificate.
+    await expectLater(
+      getJson(
+        MockClient((_) async => throw const HandshakeException('bad cert')),
+        url,
+        headers: <String, String>{},
+      ),
+      throwsA(isA<NetworkException>()),
+    );
+    await expectLater(
+      postJson(
+        MockClient((_) async => throw const HandshakeException('bad cert')),
+        url,
+        headers: <String, String>{},
+        body: <String, Object?>{},
+      ),
+      throwsA(isA<NetworkException>()),
+    );
+    // http passes on a SocketException from a reply that stops halfway.
+    Stream<List<int>> dropped() async* {
+      yield utf8.encode('{"ok":');
+      throw const SocketException('Connection reset by peer');
+    }
+
+    for (final abortTrigger in <Future<void>?>[
+      null,
+      Completer<void>().future,
+    ]) {
+      await expectLater(
+        postJson(
+          MockClient.streaming(
+            (_, _) async => http.StreamedResponse(dropped(), 200),
+          ),
+          url,
+          headers: <String, String>{},
+          body: <String, Object?>{},
+          abortTrigger: abortTrigger,
+        ),
+        throwsA(isA<NetworkException>()),
+        reason: 'abortTrigger: $abortTrigger',
+      );
+    }
+  });
 }
 
 // What OpenAI sends when a project's model allowlist blocks the model.

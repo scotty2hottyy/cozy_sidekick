@@ -534,14 +534,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _isStopping = false;
       _isSending = false;
     });
+    // Only the type is logged, so no key or provider text reaches the log.
     if (error is AiProviderException) {
-      debugPrint('Chat failed: $error'); // never includes keys
+      debugPrint('Chat failed: ${error.runtimeType}');
       _showError(
         friendlyMessage(error),
         fixIn: needsSettings(error) ? _settingsFor(error) : null,
       );
     } else {
-      debugPrint('Unexpected chat error: $error');
+      debugPrint('Unexpected chat error: ${error.runtimeType}');
       _showError('Something went wrong. Please try again.');
     }
   }

@@ -17,6 +17,7 @@ Future<Map<String, dynamic>> postJson(
   Duration timeout = const Duration(seconds: 60),
   void Function(Map<String, String> headers)? onHeaders,
 }) => _requestJson(
+  headers,
   () {
     if (abortTrigger == null) {
       return client.post(
@@ -50,19 +51,27 @@ Future<Map<String, dynamic>> getJson(
   Uri url, {
   required Map<String, String> headers,
   Duration timeout = const Duration(seconds: 60),
-}) => _requestJson(() => client.get(url, headers: headers), timeout);
+}) => _requestJson(headers, () => client.get(url, headers: headers), timeout);
 
+/// Checks [headers], then sends the request that [send] builds with them.
 Future<Map<String, dynamic>> _requestJson(
+  Map<String, String> headers,
   Future<http.Response> Function() send,
   Duration timeout, [
   void Function(Map<String, String> headers)? onHeaders,
 ]) async {
+  _checkHeaderValues(headers);
+
   final http.Response response;
   try {
     response = await send().timeout(timeout);
   } on TimeoutException {
     throw const ProviderTimeoutException();
   } on http.ClientException {
+    throw const NetworkException();
+  } on IOException {
+    // http passes on a HandshakeException, or a SocketException from a
+    // connection that drops mid-reply, as it is.
     throw const NetworkException();
   }
 
@@ -96,6 +105,8 @@ Stream<Map<String, dynamic>> postEventStream(
   Duration timeout = const Duration(seconds: 60),
   void Function(Map<String, String> headers)? onHeaders,
 }) async* {
+  _checkHeaderValues(headers);
+
   final request = http.AbortableRequest('POST', url, abortTrigger: abortTrigger)
     ..headers.addAll(<String, String>{
       'Content-Type': 'application/json',
@@ -146,6 +157,23 @@ Stream<Map<String, dynamic>> postEventStream(
     throw const NetworkException();
   } on FormatException {
     throw const BadResponseException('An event was not JSON or not UTF-8');
+  }
+}
+
+/// Throws [InvalidApiKeyException] when a value in [headers] has a
+/// character that an HTTP header can't hold.
+///
+/// dart:io would throw a FormatException that holds the whole value, key
+/// and all. The app's own headers are plain ASCII, so only a key or token
+/// pasted with something like a zero-width space fails here.
+void _checkHeaderValues(Map<String, String> headers) {
+  for (final value in headers.values) {
+    for (final unit in value.codeUnits) {
+      // Printable ASCII, or a tab.
+      if ((unit < 0x20 || unit > 0x7e) && unit != 0x09) {
+        throw const InvalidApiKeyException();
+      }
+    }
   }
 }
 

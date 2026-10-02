@@ -96,7 +96,9 @@ class ProviderConnectionService implements ConnectionTester {
       );
     } on BadResponseException {
       return const ConnectionTestResult(ConnectionTestStatus.invalidResponse);
-    } on Exception {
+    } on Object {
+      // An Error too, like dart:io's ArgumentError for a bad port, so the
+      // Test Connection button can't stay on "Testing…".
       return const ConnectionTestResult(ConnectionTestStatus.otherError);
     }
   }

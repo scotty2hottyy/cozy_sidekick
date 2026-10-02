@@ -102,8 +102,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
           }
         }
       } on AiProviderException catch (e) {
-        // The row says the quota is unknown instead.
-        debugPrint('Free quota check failed: $e'); // never includes keys
+        // The row says the quota is unknown instead. Only the type is
+        // logged, so no key or provider text reaches the log.
+        debugPrint('Free quota check failed: ${e.runtimeType}');
       }
     }
     final statuses = <String, String>{};
@@ -593,15 +594,21 @@ class _QuotaRouteEditDialogState extends State<_QuotaRouteEditDialog> {
     try {
       models = await widget.modelLister.listFreeModels(_route.provider);
       if (models.contains(_route.model)) model = _route.model;
-    } on AiProviderException catch (e) {
-      debugPrint('Free model list failed: $e'); // never includes keys
-      // The route keeps its model until the list loads.
+    } on Object catch (e) {
+      // Only the type is logged, so no key or provider text reaches the log.
+      debugPrint('Free model list failed: ${e.runtimeType}');
+      // The route keeps its model until the list loads. Any error ends the
+      // spinner, so Save can't stay off.
       models = <String>[_route.model];
       model = _route.model;
-      error = e is MissingApiKeyException
-          ? 'Add your ${_route.provider.displayName} key in API Credentials '
-                'to see its free models.'
-          : "Couldn't load the free models. ${friendlyMessage(e)}";
+      error = switch (e) {
+        MissingApiKeyException() =>
+          'Add your ${_route.provider.displayName} key in API Credentials '
+              'to see its free models.',
+        AiProviderException() =>
+          "Couldn't load the free models. ${friendlyMessage(e)}",
+        _ => "Couldn't load the free models.",
+      };
     }
     if (!mounted) return;
     setState(() {

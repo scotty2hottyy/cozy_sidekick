@@ -45,6 +45,34 @@ void main() {
     expect(provider.lastModel, 'gpt-6-sol');
   });
 
+  test(
+    'an Error from the provider is a failed test, not a stuck one',
+    () async {
+      // dart:io's error for a URL with a port like 80800.
+      for (final error in <Object>[
+        ArgumentError('Invalid port 80800'),
+        StateError('internal detail'),
+        const FormatException('bad'),
+      ]) {
+        final service = ProviderConnectionService(
+          providers: <AiProviderType, AiProvider>{
+            AiProviderType.customServer: _ResultProvider(error),
+          },
+          settingsStore: InMemorySettingsStore(),
+        );
+        final result = await service.testConnection(
+          AiProviderType.customServer,
+        );
+        expect(
+          result.status,
+          ConnectionTestStatus.otherError,
+          reason: '$error',
+        );
+        expect(result.message, 'Connection test failed.');
+      }
+    },
+  );
+
   test('every status has its own message', () {
     final messages = ConnectionTestStatus.values.map(
       (status) => ConnectionTestResult(status).message,
