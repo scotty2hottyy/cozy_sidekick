@@ -126,6 +126,7 @@ class _CredentialCardState extends State<_CredentialCard> {
   bool _hasSecret = false;
   bool _replacing = false;
   bool _testing = false;
+  String? _secretError;
   ConnectionTestResult? _result;
 
   @override
@@ -135,28 +136,64 @@ class _CredentialCardState extends State<_CredentialCard> {
   }
 
   Future<void> _loadStatus() async {
-    final value = await widget.keyStore.has(widget.provider);
+    bool value;
+    try {
+      value = await widget.keyStore.has(widget.provider);
+    } on Object catch (error) {
+      // Show the empty field so saving a key again can fix it.
+      debugPrint('Key status check failed: ${error.runtimeType}');
+      value = false;
+    }
     if (mounted) setState(() => _hasSecret = value);
   }
+
+  /// Keys and tokens only use visible ASCII. Anything else, such as an
+  /// invisible character picked up in copy and paste, would break requests.
+  static bool _isAllowedSecret(String value) =>
+      value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
+
+  void _showMessage(String message) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _save() async {
     final value = _controller.text.trim();
     if (value.isEmpty) return;
-    await widget.keyStore.save(widget.provider, value);
+    if (!_isAllowedSecret(value)) {
+      // Clear it so pasting again replaces the bad key instead of adding to it.
+      _controller.clear();
+      setState(
+        () => _secretError =
+            "This key has characters that aren't allowed. Paste it again.",
+      );
+      return;
+    }
+    try {
+      await widget.keyStore.save(widget.provider, value);
+    } on Object catch (error) {
+      debugPrint('Key save failed: ${error.runtimeType}');
+      if (mounted) _showMessage("Couldn't save the key. Please try again.");
+      return;
+    }
     _controller.clear();
     if (!mounted) return;
     setState(() {
       _hasSecret = true;
       _replacing = false;
+      _secretError = null;
       _result = null;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Credential saved securely')));
+    _showMessage('Credential saved securely');
   }
 
   Future<void> _delete() async {
-    await widget.keyStore.delete(widget.provider);
+    try {
+      await widget.keyStore.delete(widget.provider);
+    } on Object catch (error) {
+      debugPrint('Key delete failed: ${error.runtimeType}');
+      if (mounted) _showMessage("Couldn't delete the key. Please try again.");
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _hasSecret = false;
@@ -214,9 +251,11 @@ class _CredentialCardState extends State<_CredentialCard> {
               obscureText: true,
               autocorrect: false,
               enableSuggestions: false,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() => _secretError = null),
               decoration: InputDecoration(
                 labelText: widget.provider.secretLabel,
+                errorText: _secretError,
+                errorMaxLines: 3,
                 border: const OutlineInputBorder(),
               ),
             ),
