@@ -66,7 +66,7 @@ Reply with a 2xx status and a JSON object whose `message` is a non-empty string.
 
 ### Requirements
 
-- Flutter 3.44 or later on the stable channel (tested with 3.47.5), which includes Dart 3.13.3 or later
+- Flutter 3.47.3 or later on the stable channel (tested with 3.47.5), which includes Dart 3.13.3 or later
 - Xcode and CocoaPods for iOS (iOS 15.0 or later)
 - Android Studio or the Android SDK for Android
 
@@ -155,7 +155,7 @@ flutter test
 dart format lib test
 ```
 
-CI runs `flutter analyze` and `flutter test` on every pull request to `main`. It does not check formatting, so run `dart format` before you push. Pushing a `v*` tag (for example `v1.0.0`) builds the APK and publishes it as a GitHub Release.
+CI runs `flutter analyze` and `flutter test` on every pull request to `main`. It does not check formatting, so run `dart format` before you push. Pushing a version tag in the form `vX.Y.Z` (for example `v1.0.0`) builds the APK and publishes it as a GitHub Release.
 
 ### Workflow
 

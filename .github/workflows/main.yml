@@ -98,7 +98,7 @@ jobs:
 
   release:
     needs: build_apk                  # reuses the APK that job uploaded
-    if: startsWith(github.ref, 'refs/tags/v')   # v* tags only, never main
+    if: startsWith(github.ref, 'refs/tags/v')   # vX.Y.Z tags only, never main
     runs-on: ubuntu-latest
     permissions:
       contents: write                 # create the GitHub Release

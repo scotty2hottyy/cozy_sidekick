@@ -254,9 +254,9 @@ A release audit on 2026-10-02 checked eight areas (platform config, CI, code hyg
   - Every `debugPrint` of an error logs only its `runtimeType`.
 - **Custom server URL:** a port outside 1–65535 is rejected, and a trailing `/chat` or slash is dropped when saving and when sending. `testConnection` catches everything, so the button can't stay on "Testing…".
 - **Keys:** `clearKeysLeftFromPreviousInstall` (`lib/services/first_launch_cleanup.dart`) deletes saved keys on a true first launch, which it detects by the `personality.items` preference being absent. iOS keeps Keychain items after the app is deleted. `SecureApiKeyStore.read` returns null on a `PlatformException`, so a key that can't be decrypted acts like a missing key. API Credentials catches storage errors and rejects keys with invisible characters.
-- **Layout:** when the chat body is shorter than 320 px (landscape with the keyboard up), the header and the "Chat:" line hide and the composer grows to only 2 lines (`MessageComposer.maxLines`). The chat body respects side safe areas. The Rename and personality dialogs scroll. `ChatHeader` is a Row, so a long title can't cover its buttons. The Voice & Speech dropdowns shorten long names.
+- **Layout:** when the chat body is shorter than 320 px, the "Chat:" line hides and the composer grows to only 2 lines (`MessageComposer.maxLines`). The header (with the Conversations and Settings buttons) also hides, but only while the keyboard is up, so a short window such as split-screen keeps its buttons. The chat body respects side safe areas. The Rename and personality dialogs scroll. `ChatHeader` is a Row, so a long title can't cover its buttons. The Voice & Speech dropdowns shorten long names.
 - **Cleanup:** removed the About placeholder row, the unused `ChatHistoryStore`, the template text in `pubspec.yaml` and the unused `cupertino_icons`.
-- **CI:** a `release` job runs only on `v*` tags. It downloads the APK that `build_apk` uploaded and publishes it as a GitHub Release with `softprops/action-gh-release@v3`. It's the only job with `contents: write`.
+- **CI:** a `release` job runs only on `vX.Y.Z` tags (the workflow triggers on `v*.*.*`). It downloads the APK that `build_apk` uploaded and publishes it as a GitHub Release with `softprops/action-gh-release@v3`. It's the only job with `contents: write`.
 - **README:** screenshots (from a preview build with demo chats, no keys), the CI badge, the team, the Flutter version, where to get keys, the Save step, the custom server's reply rules, and release download and uninstall notes.
 - Found but left for later as cards: unreadable saved chats lock the app, a reply cut off by force-closing can't be retried, two auto-routing miscounts, a size budget for long Groq chats, OpenRouter's moderation 403, and one release signing key.
 
@@ -268,5 +268,5 @@ Release checklist for #22, on the release APK from CI, on a real Android phone (
 4. Force-close and reopen: personalities, the selected service, keys and chats are all still there.
 5. Airplane mode, a wrong key and no key each show a friendly message with the right button.
 6. Long messages, rotating the phone and opening the keyboard all behave.
-7. Merge, wait for a green `main` run, then push an annotated `v1.0.0` tag on that commit, so CI publishes the GitHub Release.
+7. Merge PR #63 (#17, the Android release config) and the v1.0.0 PR, wait for a green `main` run that contains both, then push an annotated `v1.0.0` tag on that commit, so CI publishes the GitHub Release. Tagging before #63 is merged would publish an APK that can't reach the network.
 8. At least two teammates install the release APK and go through this list.
