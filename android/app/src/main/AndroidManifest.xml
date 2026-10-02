@@ -1,9 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release builds need this to reach any AI provider. The debug and
+         profile manifests add it on their own, so only release was missing it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Backups are off because flutter_secure_storage keys can't be restored:
+         the Keystore key that encrypts them never leaves the phone. -->
     <application
-        android:label="cozy_sidekick"
+        android:label="Cozy Sidekick"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

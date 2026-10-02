@@ -15,8 +15,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.cozy_sidekick"
+        // Matches the iOS bundle ID. The namespace above stays as it is, because
+        // changing it would mean moving MainActivity.kt to a matching folder.
+        applicationId = "com.sonniersolution.cozysidekick"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -31,8 +32,9 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signed with the debug key on purpose: the APK is sideloaded for
+            // class demos, not published. CI makes a new debug key on every run,
+            // so uninstall an earlier build before installing a new one.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
