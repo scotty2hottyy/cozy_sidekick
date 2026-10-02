@@ -2,6 +2,10 @@
 
 Cozy Sidekick is a Flutter chat app for iOS and Android. You bring your own AI provider, and you choose the sidekick's personality. Chats, personalities and settings are stored on the device. API keys are kept in the platform's secure storage.
 
+## Demo
+
+https://github.com/user-attachments/assets/ba1f11fd-e4a1-47cb-9d36-4b0129b8dc07
+
 ## Features
 
 - **Choose your provider.** Use OpenRouter, OpenAI, Groq or your own HTTP(S) chat server. You can switch providers at any time without restarting the app.
