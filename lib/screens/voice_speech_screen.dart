@@ -105,6 +105,9 @@ class _VoiceSpeechScreenState extends State<VoiceSpeechScreen> {
                           )
                           ? settings.languageId!
                           : '',
+                      // Long language names shorten instead of overflowing
+                      // on narrow phones.
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Language',
                         border: OutlineInputBorder(),
@@ -112,12 +115,20 @@ class _VoiceSpeechScreenState extends State<VoiceSpeechScreen> {
                       items: <DropdownMenuItem<String>>[
                         const DropdownMenuItem(
                           value: '',
-                          child: Text("Phone's language"),
+                          child: Text(
+                            "Phone's language",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         for (final language in _languages)
                           DropdownMenuItem(
                             value: language.id,
-                            child: Text(language.name),
+                            child: Text(
+                              language.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (value) {
@@ -177,6 +188,7 @@ class _VoiceSpeechScreenState extends State<VoiceSpeechScreen> {
                     DropdownButtonFormField<String>(
                       key: const Key('speechVoiceDropdown'),
                       initialValue: _selectedVoiceValue(settings),
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Voice',
                         border: OutlineInputBorder(),
@@ -184,12 +196,20 @@ class _VoiceSpeechScreenState extends State<VoiceSpeechScreen> {
                       items: <DropdownMenuItem<String>>[
                         const DropdownMenuItem(
                           value: '',
-                          child: Text("Phone's default"),
+                          child: Text(
+                            "Phone's default",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         for (final voice in _matchingVoices)
                           DropdownMenuItem(
                             value: _voiceValue(voice),
-                            child: Text('${voice.name} (${voice.locale})'),
+                            child: Text(
+                              '${voice.name} (${voice.locale})',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       onChanged: (value) {
