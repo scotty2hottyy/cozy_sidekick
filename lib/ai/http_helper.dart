@@ -195,8 +195,7 @@ void _checkStatus(http.Response response) {
     if (modelError != null) throw modelError;
   }
 
-  if (code == 400 &&
-      _errorObject(response)?['code'] == 'context_length_exceeded') {
+  if (code == 400 && _isContextTooLong(_errorObject(response))) {
     throw const RequestTooLargeException('HTTP 400 context_length_exceeded');
   }
 
@@ -356,6 +355,30 @@ OutOfCreditException? _outOfCredit(http.Response response) {
   }
 
   return null;
+}
+
+/// Whether a 400's [error] says the chat is longer than the model can read.
+///
+/// OpenAI and Groq send `"code": "context_length_exceeded"`. OpenRouter's
+/// codes are numbers, so it puts that in `metadata.error_type`, or says
+/// "maximum context length" in the message, like OpenAI's.
+bool _isContextTooLong(Map<String, dynamic>? error) {
+  if (error == null) return false;
+
+  final code = error['code'];
+  final metadata = error['metadata'];
+  final errorType = metadata is Map<String, dynamic>
+      ? metadata['error_type']
+      : null;
+
+  if (code is String || errorType is String) {
+    return code == 'context_length_exceeded' ||
+        errorType == 'context_length_exceeded';
+  }
+
+  // Without either, only the message says what went wrong.
+  final message = error['message'];
+  return message is String && message.contains('maximum context length');
 }
 
 /// The `error` object in [response]'s JSON body, or null when it has none.

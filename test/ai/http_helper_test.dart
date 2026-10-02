@@ -333,6 +333,14 @@ void main() {
       '{"error":{"message":"Invalid messages","code":400}}',
       '{"error":{"message":"Not found","code":404}}',
       '{"error":{"message":"Bad","type":"invalid_request_error","code":null}}',
+      '{"error":{"code":400,"message":5,"metadata":"context_length_exceeded"}}',
+      '{"error":{"code":400,"message":"Bad","metadata":{"error_type":5}}}',
+      '{"error":"maximum context length"}',
+      // A code or error type wins over the message.
+      '{"error":{"code":"invalid_value","message":"Over the maximum context '
+          'length"}}',
+      '{"error":{"code":400,"message":"Over the maximum context length",'
+          '"metadata":{"error_type":"invalid_prompt"}}}',
     ]) {
       await expectLater(
         _post(400, body),
@@ -767,6 +775,16 @@ void main() {
         '{"error":{"message":"This model\'s maximum context length is 8192 '
         'tokens.","type":"invalid_request_error","param":"messages",'
         '"code":"context_length_exceeded"}}';
+    // OpenRouter's codes are numbers, so it names the error in metadata, or
+    // only in the message.
+    const openRouterContextLength =
+        '{"error":{"code":400,"message":"This endpoint\'s maximum context '
+        'length is 32768 tokens. However, you requested about 40000 tokens.",'
+        '"metadata":{"error_type":"context_length_exceeded"}}}';
+    const openRouterContextLengthNoMetadata =
+        '{"error":{"code":400,"message":"This endpoint\'s maximum context '
+        'length is 32768 tokens. However, you requested about 40000 '
+        'tokens."}}';
     // Groq, for a request over the free tokens-per-minute limit.
     const requestTooLarge =
         '{"error":{"message":"Request too large for model `openai/gpt-oss-20b` '
@@ -787,6 +805,14 @@ void main() {
       (413, requestTooLarge, RequestTooLargeException),
       (413, '<html>Too large</html>', RequestTooLargeException),
       (400, contextLengthExceeded, RequestTooLargeException),
+      (400, openRouterContextLength, RequestTooLargeException),
+      (400, openRouterContextLengthNoMetadata, RequestTooLargeException),
+      (
+        400,
+        '{"error":{"code":400,"message":"Bad request",'
+            '"metadata":{"error_type":"context_length_exceeded"}}}',
+        RequestTooLargeException,
+      ),
       // A plain rate limit still asks the user to wait.
       (
         429,
