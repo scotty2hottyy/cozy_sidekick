@@ -12,6 +12,7 @@ class MessageComposer extends StatefulWidget {
     this.isGenerating = false,
     this.enabled = true,
     this.isListening = false,
+    this.maxLines = 5,
   });
   final TextEditingController controller;
   final ValueChanged<String> onSend;
@@ -20,6 +21,9 @@ class MessageComposer extends StatefulWidget {
   final bool isGenerating;
   final bool enabled;
   final bool isListening;
+
+  /// How many lines the message field grows to before it scrolls.
+  final int maxLines;
 
   @override
   State<MessageComposer> createState() => _MessageComposerState();
@@ -73,7 +77,7 @@ class _MessageComposerState extends State<MessageComposer> {
                   controller: widget.controller,
                   enabled: widget.enabled,
                   minLines: 1,
-                  maxLines: 5,
+                  maxLines: widget.maxLines,
                   textCapitalization: TextCapitalization.sentences,
                   textInputAction: TextInputAction.send,
                   onChanged: (_) => setState(() {}),
