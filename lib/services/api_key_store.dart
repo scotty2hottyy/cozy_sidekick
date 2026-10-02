@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../ai/ai_provider.dart';
@@ -21,9 +23,18 @@ class SecureApiKeyStore implements ApiKeyStore {
 
   String _slot(AiProviderType provider) => 'api_key.${provider.name}';
 
+  /// Returns null when the saved key can't be read, for example after a
+  /// backup restore, so chat asks for a key instead of failing. The slot is
+  /// kept so a passing error can't destroy a good key; saving replaces it.
   @override
-  Future<String?> read(AiProviderType provider) =>
-      _storage.read(key: _slot(provider));
+  Future<String?> read(AiProviderType provider) async {
+    try {
+      return await _storage.read(key: _slot(provider));
+    } on PlatformException catch (error) {
+      debugPrint('Key read failed: ${error.runtimeType}');
+      return null;
+    }
+  }
 
   @override
   Future<void> save(AiProviderType provider, String secret) {
