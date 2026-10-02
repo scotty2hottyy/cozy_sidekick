@@ -224,7 +224,8 @@ class SettingsService implements AppSettingsStore {
 
   /// [value] trimmed, without trailing slashes or a last `/chat` segment.
   /// The custom server provider adds `/chat` itself, so a user who types
-  /// the whole endpoint still reaches it, not `/chat/chat`.
+  /// the whole endpoint still reaches it, not `/chat/chat`. Only saving
+  /// applies it, so the saved URL is the base the provider uses.
   static String normalizeBaseUrl(String value) {
     final trailingSlashes = RegExp(r'/+$');
     final base = value.trim().replaceFirst(trailingSlashes, '');

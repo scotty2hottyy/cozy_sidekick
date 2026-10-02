@@ -1,5 +1,11 @@
+import 'package:cozy_sidekick/ai/ai_provider.dart';
+import 'package:cozy_sidekick/ai/custom_server_provider.dart';
+import 'package:cozy_sidekick/models/chat_message.dart';
+import 'package:cozy_sidekick/services/api_key_store.dart';
 import 'package:cozy_sidekick/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -43,7 +49,6 @@ void main() {
       ('https://example.com/chat', 'https://example.com'),
       ('  https://example.com/chat/  ', 'https://example.com'),
       ('https://example.com:8443/api/chat', 'https://example.com:8443/api'),
-      ('https://example.com/chat/chat', 'https://example.com/chat'),
       ('https://example.com//', 'https://example.com'),
       // Only a whole last segment named chat is dropped.
       ('https://example.com/chatbot', 'https://example.com/chatbot'),
@@ -61,6 +66,38 @@ void main() {
           saved,
           reason: '$typed in ${store.runtimeType}',
         );
+      }
+    }
+  });
+
+  test('a saved URL posts to the base it shows, plus /chat', () async {
+    final keys = InMemoryApiKeyStore();
+    await keys.save(AiProviderType.customServer, 'token');
+    for (final (typed, posted) in <(String, String)>[
+      ('https://host/svc/chat', 'https://host/svc/chat'),
+      // A server mounted at /svc/chat, typed as its whole endpoint.
+      ('https://host/svc/chat/chat', 'https://host/svc/chat/chat'),
+    ]) {
+      for (final store in <AppSettingsStore>[
+        SettingsService(),
+        InMemorySettingsStore(),
+      ]) {
+        await store.saveCustomServerBaseUrl(typed);
+        final urls = <Uri>[];
+        await CustomServerProvider(
+          keyStore: keys,
+          settingsStore: store,
+          client: MockClient((request) async {
+            urls.add(request.url);
+            return http.Response('{"message":"hi"}', 200);
+          }),
+        ).sendChat(
+          systemPrompt: 'system',
+          messages: <ChatMessage>[ChatMessage.user('hello')],
+        );
+        expect(urls, <Uri>[
+          Uri.parse(posted),
+        ], reason: '$typed in ${store.runtimeType}');
       }
     }
   });

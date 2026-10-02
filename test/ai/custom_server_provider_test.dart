@@ -176,17 +176,17 @@ void main() {
     expect(captured.body, isNot(contains('gpt-6-sol')));
   });
 
-  test('a URL saved with /chat posts to /chat once', () async {
+  test('a saved URL only loses trailing slashes before /chat', () async {
     final keys = InMemoryApiKeyStore();
     await keys.save(AiProviderType.customServer, 'token');
-    for (final saved in <String>[
-      'https://example.com/chat',
-      ' https://example.com/chat/ ',
+    for (final (saved, posted) in <(String, String)>[
+      // Saving already dropped a typed /chat, so this one is the base.
+      ('https://example.com/chat', 'https://example.com/chat/chat'),
+      (' https://example.com/api// ', 'https://example.com/api/chat'),
     ]) {
       final urls = <Uri>[];
       final provider = CustomServerProvider(
         keyStore: keys,
-        // Set directly, like a URL saved before saving normalized it.
         settingsStore: InMemorySettingsStore(customServerBaseUrl: saved),
         client: MockClient((request) async {
           urls.add(request.url);
@@ -197,7 +197,7 @@ void main() {
         systemPrompt: 'system',
         messages: <ChatMessage>[ChatMessage.user('hello')],
       );
-      expect(urls, <Uri>[Uri.parse('https://example.com/chat')], reason: saved);
+      expect(urls, <Uri>[Uri.parse(posted)], reason: saved);
     }
   });
 
